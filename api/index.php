@@ -53,9 +53,153 @@ function clean(string $s): string {
     return trim(preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($s, ENT_QUOTES|ENT_HTML5, 'UTF-8'))));
 }
 
-function extractYear(string $text): string {
+function extractYear(string $text, string $title = ''): string {
     if (preg_match('/\b(19[6-9]\d|20[0-2]\d)(?=[^0-9]|$)/', $text, $m)) return $m[1];
+    $serial = extractSerial($text);
+    if ($serial) return serialToYear($serial, $title) ?: '';
     return '';
+}
+
+function extractSerial(string $text): ?string {
+    // "Serial: 1234567", "Nº serie: 1234567", "S/N: 1234567", "serienummer X1234567"
+    if (preg_match('/(?:serial|serienummer|serie|s\/n|n[ºo°]\s*(?:de\s+)?serie)[:\s]*[a-z]?(\d{5,7})/i', $text, $m)) {
+        return trim($m[1]);
+    }
+    // Prefixed serials: H0306726, T283503, J3400000, U150000, YT281000
+    if (preg_match('/\b(H\d{7}|T\d{6}|J\d{7,8}|U\d{6}|YT\d{6})\b/i', $text, $m)) {
+        return strtoupper($m[1]);
+    }
+    // Standalone 7-digit numbers not formatted as prices (no dots/commas inside)
+    if (preg_match('/(?<![.,\d])(\d{7})(?![.,\d])/', $text, $m)) {
+        $n = (int)$m[1];
+        if ($n >= 1700 && $n <= 6600000) return $m[1];
+    }
+    return null;
+}
+
+function serialToYear(string $serial, string $title = ''): ?string {
+    $serial = strtoupper($serial);
+
+    // Hangzhou, China (H prefix)
+    if (preg_match('/^H(\d{7})$/', $serial, $m)) {
+        $n = (int)$m[1];
+        $china = [
+            2004=>4000, 2005=>4900, 2006=>10900, 2007=>20700, 2008=>39900,
+            2009=>71498, 2010=>105429, 2011=>150753, 2012=>201988, 2013=>257154,
+            2014=>306726, 2015=>359873, 2016=>414970, 2017=>471933, 2018=>535799,
+            2019=>604133, 2020=>673783, 2021=>727175,
+        ];
+        return serialLookup($n, $china);
+    }
+
+    // Thomaston, Georgia (T prefix)
+    if (preg_match('/^T(\d{6})$/', $serial, $m)) {
+        $n = (int)$m[1];
+        $thomaston = [
+            1983=>500101, 1984=>500422, 1985=>500998, 1986=>502874,
+            1987=>101856, 1988=>110501, 1989=>122421, 1990=>132706,
+            1991=>143101, 1992=>155131, 1993=>167386, 1994=>177711,
+            1995=>189741, 1996=>202945, 1997=>212917, 1998=>224053,
+            1999=>237164, 2000=>251146, 2001=>265755, 2002=>275258,
+            2003=>283503, 2004=>294877,
+        ];
+        // T500xxx (1983-1986) then T1xxxxx (1987+)
+        if ($n >= 500000) {
+            foreach ([1986=>502874,1985=>500998,1984=>500422,1983=>500101] as $y=>$s) {
+                if ($n >= $s) return (string)$y;
+            }
+        }
+        $late = array_filter($thomaston, fn($v) => $v < 500000, ARRAY_FILTER_USE_BOTH);
+        return serialLookup($n, $late);
+    }
+
+    // Jakarta, Indonesia (J prefix) - J + 2-digit year code + 5-6 digits
+    if (preg_match('/^J(\d{2})\d{5,6}$/', $serial, $m)) {
+        $code = (int)$m[1];
+        $indonesiaMap = [];
+        for ($y = 1998, $c = 15; $y <= 2022; $y++, $c++) {
+            $indonesiaMap[$c] = $y;
+        }
+        return isset($indonesiaMap[$code]) ? (string)$indonesiaMap[$code] : null;
+    }
+
+    // South Haven, Michigan (U prefix)
+    if (preg_match('/^U(\d{6})$/', $serial, $m)) {
+        $n = (int)$m[1];
+        $michigan = [
+            1974=>101000, 1975=>102000, 1976=>107000, 1977=>110000,
+            1978=>117000, 1979=>124000, 1980=>132000, 1981=>141000,
+            1982=>150000, 1983=>160000, 1984=>167000, 1985=>174000,
+            1986=>186000,
+        ];
+        return serialLookup($n, $michigan);
+    }
+
+    // Taoyuan, Taiwan (YT prefix)
+    if (preg_match('/^YT(\d{6})$/', $serial, $m)) {
+        $n = (int)$m[1];
+        $taiwan = [2004=>277800, 2005=>281000, 2006=>285000];
+        return serialLookup($n, $taiwan);
+    }
+
+    // Hamamatsu, Japan (pure numeric)
+    if (preg_match('/^\d{4,7}$/', $serial)) {
+        $n = (int)$serial;
+        $isGrand = (bool)preg_match('/\b[CGS]\d/i', $title);
+        // Before 1972: single series
+        $early = [
+            1917=>1700,1918=>1800,1919=>1900,1920=>2100,1921=>2650,1922=>3150,
+            1923=>3650,1924=>4250,1925=>4950,1926=>5700,1927=>6500,1928=>7751,
+            1929=>8928,1930=>10163,1931=>11719,1932=>13368,1933=>15182,1934=>17939,
+            1935=>19895,1936=>22397,1937=>25158,1938=>28000,1939=>30000,1940=>31900,
+            1941=>33800,1942=>35600,1943=>37000,1944=>38000,1945=>38550,1947=>40000,
+            1948=>40075,1949=>40675,1950=>42073,1951=>44262,1952=>47675,1953=>51266,
+            1954=>57057,1955=>63400,1956=>69300,1957=>77000,1958=>89000,1959=>102000,
+            1960=>124000,1961=>149000,1962=>188000,1963=>237000,1964=>298000,
+            1965=>368000,1966=>489000,1967=>570000,1968=>685000,1969=>805000,
+            1970=>960000,1971=>1130000,
+        ];
+        if ($n < 1317500) return serialLookup($n, $early);
+        // 1972+ split upright/grand
+        $upright = [
+            1972=>1317500,1973=>1510500,1974=>1745000,1975=>1945000,1976=>2154000,
+            1977=>2384000,1978=>2585000,1979=>2810500,1980=>3001000,1981=>3261000,
+            1982=>3465000,1983=>3646200,1984=>3832200,1985=>3987600,1986=>4156500,
+            1987=>4334800,1988=>4491300,1989=>4672700,1990=>4837200,1991=>4967900,
+            1992=>5086800,1993=>5204100,1994=>5296400,1995=>5375000,1996=>5446000,
+            1997=>5530000,1998=>5579000,1999=>5792000,
+        ];
+        $grand = [
+            1972=>1358500,1973=>1538500,1974=>1753500,1975=>1935000,1976=>2153000,
+            1977=>2362000,1978=>2580500,1979=>2848000,1980=>3040000,1981=>3270000,
+            1982=>3490000,1983=>3710500,1984=>3891600,1985=>4040700,1986=>4214600,
+            1987=>4351100,1988=>4561000,1989=>4671400,1990=>4810900,1991=>4951200,
+            1992=>5071800,1993=>5181400,1994=>5291500,1995=>5368000,1996=>5448000,
+            1997=>5502000,1998=>5588000,1999=>5810000,
+        ];
+        $unified = [
+            2000=>5860000,2001=>5920000,2002=>5970000,2003=>6020000,2004=>6060000,
+            2005=>6100000,2006=>6145000,2007=>6191000,2008=>6220000,2009=>6250000,
+            2010=>6280000,2011=>6310000,2012=>6340000,2013=>6360000,2014=>6380000,
+            2015=>6400000,2016=>6420000,2017=>6440000,2018=>6460000,2019=>6480000,
+            2020=>6500000,2021=>6520000,
+        ];
+        if ($n >= 5860000) return serialLookup($n, $unified);
+        $table = $isGrand ? $grand : $upright;
+        return serialLookup($n, $table);
+    }
+
+    return null;
+}
+
+function serialLookup(int $n, array $table): ?string {
+    ksort($table);
+    $result = null;
+    foreach ($table as $year => $start) {
+        if ($n >= $start) $result = (string)$year;
+        else break;
+    }
+    return $result;
 }
 
 function classifyCondition(string $title, string $link, string $store, string $desc = ''): string {
@@ -169,7 +313,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                             'store'    => 'La Casa dels Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title . ' ' . $desc),
+                            'year'     => extractYear($title . ' ' . $desc, $title),
                             'price'    => $price ?: '-',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -213,7 +357,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                             'store'    => 'Art Guinardo',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title),
+                            'year'     => extractYear($title, $title),
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -252,7 +396,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                             'store'    => 'Audenis',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title),
+                            'year'     => extractYear($title, $title),
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -298,7 +442,7 @@ if (in_array($region, ['espanya', 'europa'])) {
                             'store'    => 'Pianos Low Cost',
                             'location' => 'Madrid, Espanya',
                             'title'    => $title,
-                            'year'     => extractYear($title),
+                            'year'     => extractYear($title, $title),
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -353,7 +497,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                             'store'    => 'Corrales Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title),
+                            'year'     => extractYear($title, $title),
                             'price'    => $price ?: 'Consultar',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -397,7 +541,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                         'store'    => 'Pianos Can Puig',
                         'location' => 'Mataro, Catalunya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc),
+                        'year'     => extractYear($title . ' ' . $desc, $title),
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -458,7 +602,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                             'store'    => 'Sinergia Music',
                             'location' => 'Mataro, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title),
+                            'year'     => extractYear($title, $title),
                             'price'    => $price ?: '-',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -502,7 +646,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     if (preg_match('/Precio[:\s]*([\d.,]+)\s*€/i', $chunk, $pm)) {
                         $price = trim($pm[1]) . ' EUR';
                     }
-                    $year = extractYear($chunk);
+                    $year = extractYear($chunk, 'Yamaha ' . $jqModel);
                     $results[] = [
                         'store'    => 'Jorquera Pianos',
                         'location' => 'Barcelona, Catalunya',
@@ -554,7 +698,7 @@ if (in_array($region, ['europa'])) {
                         'store'    => 'Kleinanzeigen',
                         'location' => ($loc ?: 'Alemanya') . ', Alemanya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc),
+                        'year'     => extractYear($title . ' ' . $desc, $title),
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -595,7 +739,7 @@ if (in_array($region, ['europa'])) {
                         'store'    => 'Marktplaats',
                         'location' => ($city ?: 'Holanda') . ', Holanda',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc),
+                        'year'     => extractYear($title . ' ' . $desc, $title),
                         'price'    => $priceStr,
                         'link'     => $linkUrl,
                         'image'    => $img,
@@ -633,7 +777,7 @@ foreach ($ebayDomains as $ebayDomain) {
                         'store'    => 'eBay',
                         'location' => $country,
                         'title'    => $title,
-                        'year'     => extractYear($title),
+                        'year'     => extractYear($title, $title),
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -688,7 +832,7 @@ if (in_array($region, ['espanya', 'catalunya'])) {
                         'store'    => 'Wallapop',
                         'location' => ($city ?: 'Espanya') . ', Espanya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc),
+                        'year'     => extractYear($title . ' ' . $desc, $title),
                         'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
                         'link'     => $slug ? "https://es.wallapop.com/item/{$slug}" : '',
                         'image'    => $img,
@@ -719,7 +863,7 @@ if (in_array($region, ['europa'])) {
                         'store'    => 'Leboncoin',
                         'location' => ($ad['location']['city'] ?? '') . ', Franca',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . ($ad['body'] ?? '')),
+                        'year'     => extractYear($title . ' ' . ($ad['body'] ?? ''), $title),
                         'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
                         'link'     => $ad['url'] ?? '',
                         'image'    => $ad['images']['thumb_url'] ?? '',

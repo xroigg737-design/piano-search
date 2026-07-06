@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piano Search - Cercador de Pianos de Segona Ma</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #1a1a2e 40%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        a { color: #ffaa00; }
+
+        /* Header */
+        .top-bar {
+            display: flex;
+            align-items: center;
+            padding: 14px 24px;
+            gap: 14px;
+        }
+        .back-link {
+            color: rgba(255,255,255,0.4);
+            text-decoration: none;
+            font-size: 0.85em;
+            transition: color 0.2s;
+            white-space: nowrap;
+        }
+        .back-link:hover { color: #ffaa00; }
+
+        header {
+            text-align: center;
+            padding: 10px 20px 24px;
+        }
+        header h1 {
+            font-size: 2.1em;
+            font-weight: 700;
+            background: linear-gradient(90deg, #ffd700, #ffaa00, #ff8c00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        header p { color: rgba(255,255,255,0.4); font-size: 0.9em; margin-top: 4px; }
+
+        /* Search bar */
+        .search-bar {
+            max-width: 780px;
+            margin: 0 auto 12px;
+            padding: 0 24px;
+            display: flex;
+            gap: 10px;
+        }
+        .search-bar input {
+            flex: 1;
+            padding: 14px 20px;
+            border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.1);
+            background: rgba(10,10,30,0.7);
+            color: #fff;
+            font-size: 1.05em;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-bar input:focus { border-color: rgba(255,170,0,0.5); }
+        .search-bar input::placeholder { color: rgba(255,255,255,0.3); }
+        .search-bar select {
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.1);
+            background: rgba(10,10,30,0.7);
+            color: #e0e0e0;
+            font-size: 0.95em;
+            outline: none;
+            cursor: pointer;
+        }
+        .search-bar select option { background: #1a1a2e; }
+        .btn-search {
+            padding: 14px 32px;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(180deg, #d4920a 0%, #a06800 100%);
+            color: #fff;
+            font-size: 1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            white-space: nowrap;
+        }
+        .btn-search:hover { background: linear-gradient(180deg, #e8a420 0%, #b87800 100%); transform: translateY(-1px); }
+
+        .quick-row {
+            max-width: 780px;
+            margin: 0 auto 32px;
+            padding: 0 24px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .quick-row span { font-size: 0.78em; color: rgba(255,255,255,0.3); margin-right: 2px; }
+        .qb {
+            padding: 5px 13px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,170,0,0.15);
+            background: rgba(255,170,0,0.05);
+            color: rgba(255,170,0,0.65);
+            font-size: 0.8em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .qb:hover { background: rgba(255,170,0,0.14); color: #ffaa00; border-color: rgba(255,170,0,0.35); }
+
+        /* Main container */
+        .main { max-width: 1100px; margin: 0 auto; padding: 0 24px 60px; }
+
+        /* ==================== SECTIONS ==================== */
+        .section {
+            margin-bottom: 36px;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.07);
+            overflow: hidden;
+            background: rgba(255,255,255,0.02);
+        }
+        .section-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 18px 28px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .section-num {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 0.85em;
+            flex-shrink: 0;
+        }
+        .s1 .section-num { background: rgba(255,170,0,0.15); color: #ffaa00; }
+        .s2 .section-num { background: rgba(100,180,255,0.15); color: #6ab4ff; }
+        .s3 .section-num { background: rgba(180,100,255,0.15); color: #b474ff; }
+        .s1 .section-head { background: linear-gradient(90deg, rgba(255,170,0,0.06) 0%, transparent 100%); }
+        .s2 .section-head { background: linear-gradient(90deg, rgba(100,180,255,0.06) 0%, transparent 100%); }
+        .s3 .section-head { background: linear-gradient(90deg, rgba(180,100,255,0.06) 0%, transparent 100%); }
+        .section-title {
+            font-size: 1.05em;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        .s1 .section-title { color: #ffcc44; }
+        .s2 .section-title { color: #8ac4ff; }
+        .s3 .section-title { color: #c89aff; }
+        .section-body { padding: 28px; }
+
+        /* ==================== S1: FITXA TECNICA ==================== */
+        .fitxa { display: grid; grid-template-columns: 340px 1fr; gap: 28px; }
+        .fitxa-img-wrap {
+            background: rgba(0,0,0,0.25);
+            border-radius: 14px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .fitxa-img-wrap img {
+            width: 100%;
+            aspect-ratio: 4/3;
+            object-fit: contain;
+            background: #111;
+            display: block;
+        }
+        .fitxa-img-wrap .img-caption {
+            padding: 10px 14px;
+            font-size: 0.78em;
+            color: rgba(255,255,255,0.35);
+            text-align: center;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .fitxa-img-wrap .img-link {
+            display: block;
+            text-align: center;
+            padding: 10px;
+            font-size: 0.82em;
+            color: #ffaa00;
+            text-decoration: none;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            transition: background 0.2s;
+        }
+        .fitxa-img-wrap .img-link:hover { background: rgba(255,170,0,0.08); }
+
+        .fitxa-specs h2 {
+            font-size: 1.5em;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+        .fitxa-subtitle {
+            font-size: 0.88em;
+            color: rgba(255,255,255,0.4);
+            margin-bottom: 18px;
+        }
+
+        .dims-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .dim-box {
+            background: rgba(255,170,0,0.06);
+            border: 1px solid rgba(255,170,0,0.12);
+            border-radius: 10px;
+            padding: 14px 10px;
+            text-align: center;
+        }
+        .dim-val { font-size: 1.55em; font-weight: 800; color: #ffcc44; line-height: 1.1; }
+        .dim-unit { font-size: 0.7em; font-weight: 400; color: rgba(255,204,68,0.6); }
+        .dim-label { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.4); margin-top: 3px; font-weight: 600; }
+
+        .extra-specs {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+        .es-item {
+            background: rgba(0,0,0,0.15);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .es-val { font-size: 1.15em; font-weight: 700; color: #e8e8e8; }
+        .es-label { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+
+        .profile-line { margin-bottom: 14px; }
+        .profile-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 8px;
+            font-size: 0.82em;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        .pb-estudiant { background: rgba(100,200,100,0.15); color: #88dd88; }
+        .pb-intermedi { background: rgba(100,170,255,0.15); color: #88bbff; }
+        .pb-professional { background: rgba(255,170,0,0.15); color: #ffcc44; }
+        .pb-premium { background: rgba(200,100,255,0.15); color: #cc88ff; }
+        .pb-concert { background: rgba(255,80,80,0.15); color: #ff9999; }
+
+        .fitxa-desc {
+            font-size: 0.94em;
+            color: rgba(255,255,255,0.6);
+            line-height: 1.7;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            padding-top: 14px;
+        }
+
+        /* ==================== S2: CERCA ==================== */
+        .search-region-info {
+            margin-bottom: 16px;
+            font-size: 0.88em;
+            color: rgba(255,255,255,0.4);
+        }
+        .search-region-info strong { color: #8ac4ff; }
+
+        .open-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(100,180,255,0.25);
+            background: rgba(100,180,255,0.08);
+            color: #8ac4ff;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+        .open-all:hover { background: rgba(100,180,255,0.16); border-color: rgba(100,180,255,0.4); }
+
+        .cerca-loading {
+            text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4);
+        }
+        .cerca-spinner {
+            display: inline-block; width: 28px; height: 28px;
+            border: 3px solid rgba(100,180,255,0.15);
+            border-top-color: #6ab4ff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .cerca-count {
+            display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+            font-size: 0.9em; flex-wrap: wrap;
+        }
+        .cerca-count strong { color: #8ac4ff; font-size: 1.1em; }
+        .cerca-sources {
+            display: flex; gap: 5px; flex-wrap: wrap;
+        }
+        .src-badge {
+            padding: 3px 10px; border-radius: 5px; font-size: 0.72em;
+            font-weight: 700; letter-spacing: 0.3px;
+            background: rgba(100,180,255,0.1); color: #6ab4ff;
+            border: 1px solid rgba(100,180,255,0.15);
+        }
+        .cerca-none {
+            text-align: center; padding: 36px 20px;
+            color: rgba(255,255,255,0.3); font-size: 0.95em;
+        }
+
+        .results-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); }
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+            min-width: 650px;
+        }
+        .results-table th {
+            text-align: left;
+            padding: 14px 14px;
+            font-size: 0.72em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(100,180,255,0.7);
+            border-bottom: 2px solid rgba(100,180,255,0.12);
+            background: rgba(0,0,0,0.18);
+            white-space: nowrap;
+            font-weight: 700;
+        }
+        .results-table td {
+            padding: 13px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            vertical-align: middle;
+        }
+        .results-table tbody tr:hover td { background: rgba(100,180,255,0.04); }
+        .results-table .td-store { font-weight: 700; color: #e8e8e8; white-space: nowrap; }
+        .results-table .td-loc { color: rgba(255,255,255,0.45); white-space: nowrap; font-size: 0.92em; }
+        .results-table .td-model { color: #ffcc44; font-weight: 600; }
+        .results-table .td-type-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 0.75em;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        .tb-specialist { background: rgba(255,170,0,0.14); color: #ffcc44; }
+        .tb-dealer { background: rgba(100,180,255,0.14); color: #88bbff; }
+        .tb-marketplace { background: rgba(100,200,100,0.14); color: #88dd88; }
+        .tb-auction { background: rgba(200,100,255,0.14); color: #cc88ff; }
+        .results-table .td-link a {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 14px;
+            border-radius: 7px;
+            background: rgba(100,180,255,0.1);
+            border: 1px solid rgba(100,180,255,0.2);
+            color: #8ac4ff;
+            text-decoration: none;
+            font-size: 0.85em;
+            font-weight: 600;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .results-table .td-link a:hover {
+            background: rgba(100,180,255,0.2);
+            border-color: rgba(100,180,255,0.4);
+        }
+        .results-table .td-price {
+            font-weight: 800; color: #66dd88; white-space: nowrap; font-size: 1em;
+        }
+        .results-table .td-year { white-space: nowrap; color: rgba(255,255,255,0.5); }
+        .results-table .td-title {
+            max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            color: #e8e8e8;
+        }
+        .results-table .td-thumb {
+            width: 50px; height: 38px; object-fit: cover; border-radius: 4px;
+            background: rgba(255,255,255,0.05); vertical-align: middle;
+        }
+        .cond-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 0.75em; font-weight: 700; letter-spacing: 0.3px;
+        }
+        .cond-2a { background: rgba(76,175,80,0.25); color: #81c784; }
+        .cond-nou { background: rgba(33,150,243,0.25); color: #64b5f6; }
+        .cond-unk { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.3); }
+
+        .table-section-row td {
+            background: rgba(0,0,0,0.12) !important;
+            padding: 10px 14px !important;
+            font-size: 0.75em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: rgba(255,255,255,0.3);
+        }
+
+        /* ==================== S3: BENCHMARK ==================== */
+        .bench-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .bench-controls input {
+            flex: 1;
+            min-width: 200px;
+            padding: 11px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(180,100,255,0.2);
+            background: rgba(10,10,30,0.6);
+            color: #e0e0e0;
+            font-size: 0.92em;
+            outline: none;
+        }
+        .bench-controls input:focus { border-color: rgba(180,100,255,0.5); }
+        .btn-bench {
+            padding: 11px 22px;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(180deg, #7a40c8 0%, #5a2aa0 100%);
+            color: #fff;
+            font-size: 0.92em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-bench:hover { background: linear-gradient(180deg, #9050e0 0%, #6a35b8 100%); }
+        .btn-bench-clear {
+            padding: 11px 18px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,80,80,0.25);
+            background: rgba(255,80,80,0.08);
+            color: #ff8888;
+            font-size: 0.88em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-bench-clear:hover { background: rgba(255,80,80,0.16); }
+
+        .bench-models-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+        .bench-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: default;
+        }
+        .bench-tag .bt-x {
+            cursor: pointer;
+            opacity: 0.5;
+            font-size: 0.9em;
+        }
+        .bench-tag .bt-x:hover { opacity: 1; }
+
+        .bench-colors { --c0: #ffcc44; --c1: #6ab4ff; --c2: #b474ff; --c3: #66dd88; --c4: #ff8888; --c5: #44ddcc; }
+        .bt-0 { background: rgba(255,204,68,0.12); color: var(--c0); border: 1px solid rgba(255,204,68,0.25); }
+        .bt-1 { background: rgba(106,180,255,0.12); color: var(--c1); border: 1px solid rgba(106,180,255,0.25); }
+        .bt-2 { background: rgba(180,116,255,0.12); color: var(--c2); border: 1px solid rgba(180,116,255,0.25); }
+        .bt-3 { background: rgba(102,221,136,0.12); color: var(--c3); border: 1px solid rgba(102,221,136,0.25); }
+        .bt-4 { background: rgba(255,136,136,0.12); color: var(--c4); border: 1px solid rgba(255,136,136,0.25); }
+        .bt-5 { background: rgba(68,221,204,0.12); color: var(--c5); border: 1px solid rgba(68,221,204,0.25); }
+
+        /* Benchmark comparison table */
+        .bench-table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(180,100,255,0.12); }
+        .bench-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+        }
+        .bench-table th {
+            padding: 14px;
+            text-align: left;
+            font-size: 0.72em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(180,100,255,0.6);
+            border-bottom: 2px solid rgba(180,100,255,0.1);
+            background: rgba(0,0,0,0.15);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .bench-table th:first-child { width: 160px; color: rgba(255,255,255,0.4); }
+        .bench-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            vertical-align: middle;
+        }
+        .bench-table tbody tr:hover td { background: rgba(180,100,255,0.03); }
+        .bench-table .row-label {
+            font-weight: 700;
+            color: rgba(255,255,255,0.5);
+            font-size: 0.85em;
+            white-space: nowrap;
+        }
+
+        /* Visual bars for benchmark */
+        .bar-wrap { display: flex; align-items: center; gap: 10px; }
+        .bar-bg {
+            flex: 1;
+            height: 10px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 5px;
+            overflow: hidden;
+            min-width: 60px;
+        }
+        .bar-fill { height: 100%; border-radius: 5px; transition: width 0.5s ease; }
+        .bar-val { font-size: 0.88em; font-weight: 700; min-width: 60px; white-space: nowrap; }
+
+        .bench-profile .profile-badge { font-size: 0.78em; }
+
+        .bench-empty {
+            text-align: center;
+            padding: 48px 20px;
+            color: rgba(255,255,255,0.25);
+        }
+        .bench-empty-icon { font-size: 3em; margin-bottom: 10px; }
+        .bench-empty p { font-size: 0.92em; }
+
+        .bench-suggest {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            justify-content: center;
+        }
+
+        /* Catalog section (collapsible) */
+        .catalog-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 16px 28px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            color: rgba(255,255,255,0.5);
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 20px;
+        }
+        .catalog-toggle:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.7); }
+        .catalog-toggle .arrow { transition: transform 0.3s; font-size: 0.8em; }
+        .catalog-toggle.open .arrow { transform: rotate(90deg); }
+        .catalog-panel { display: none; margin-bottom: 20px; }
+        .catalog-panel.open { display: block; }
+
+        .cat-controls {
+            display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+        }
+        .cat-controls input, .cat-controls select {
+            padding: 9px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(10,10,30,0.6);
+            color: #e0e0e0;
+            font-size: 0.85em;
+            outline: none;
+        }
+        .cat-controls input { flex: 1; min-width: 180px; }
+        .cat-count { font-size: 0.78em; color: rgba(255,255,255,0.3); margin-bottom: 10px; }
+
+        .cat-table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); max-height: 55vh; overflow-y: auto; }
+        .cat-table { width: 100%; border-collapse: collapse; font-size: 0.85em; min-width: 700px; }
+        .cat-table th {
+            text-align: left; padding: 11px 10px; font-size: 0.72em; text-transform: uppercase;
+            letter-spacing: 0.8px; color: rgba(255,170,0,0.6); border-bottom: 2px solid rgba(255,170,0,0.1);
+            background: rgba(0,0,0,0.15); cursor: pointer; white-space: nowrap; user-select: none;
+            position: sticky; top: 0; z-index: 1; font-weight: 700;
+        }
+        .cat-table th:hover { color: #ffaa00; }
+        .cat-table td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .cat-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .cat-table .tm { font-weight: 700; color: #ffaa00; white-space: nowrap; }
+        .cat-btn {
+            padding: 4px 10px; border-radius: 5px; border: 1px solid rgba(255,170,0,0.18);
+            background: rgba(255,170,0,0.06); color: #ffaa00; font-size: 0.78em; font-weight: 600;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .cat-btn:hover { background: rgba(255,170,0,0.14); }
+
+        /* Empty states */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: rgba(255,255,255,0.25);
+        }
+        .empty-state .es-icon { font-size: 2.5em; margin-bottom: 10px; }
+        .empty-state p { font-size: 0.92em; line-height: 1.6; }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 24px 20px;
+            color: #334;
+            font-size: 0.75em;
+        }
+        .footer-version { margin-top: 4px; font-size: 0.9em; color: #ffaa00; letter-spacing: 0.5px; }
+
+        @media (max-width: 800px) {
+            header h1 { font-size: 1.55em; }
+            .search-bar { flex-direction: column; }
+            .main { padding: 0 12px 40px; }
+            .section-body { padding: 18px 14px; }
+            .fitxa { grid-template-columns: 1fr; }
+            .fitxa-img-wrap { max-width: 320px; margin: 0 auto; }
+            .dims-grid { grid-template-columns: repeat(3, 1fr); }
+            .extra-specs { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 500px) {
+            .section-head { padding: 14px 16px; }
+            .section-body { padding: 14px 12px; }
+            .dims-grid { gap: 6px; }
+            .dim-val { font-size: 1.25em; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="top-bar">
+    <a class="back-link" href="../landing-page/index.html">&#9664; Apps XRoig</a>
+</div>
+
+<header>
+    <h1>&#127929; Piano Search</h1>
+    <p>Cercador de pianos de segona ma &middot; Fitxa tecnica &middot; Benchmark</p>
+</header>
+
+<div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Introdueix un model de piano... (ex: Yamaha U3H)" autofocus>
+    <select id="searchRegion">
+        <option value="catalunya">Catalunya</option>
+        <option value="espanya">Espanya</option>
+        <option value="europa">Europa</option>
+        <option value="japo">Japo</option>
+    </select>
+    <button class="btn-search" onclick="doSearch()">&#128269; Cercar</button>
+</div>
+
+<div class="quick-row">
+    <span>Populars:</span>
+    <button class="qb" onclick="qs('Yamaha U1H')">U1H</button>
+    <button class="qb" onclick="qs('Yamaha U3H')">U3H</button>
+    <button class="qb" onclick="qs('Yamaha U3A')">U3A</button>
+    <button class="qb" onclick="qs('Yamaha UX-3')">UX-3</button>
+    <button class="qb" onclick="qs('Yamaha C3')">C3</button>
+    <button class="qb" onclick="qs('Yamaha C3X')">C3X</button>
+    <button class="qb" onclick="qs('Yamaha CFX')">CFX</button>
+    <button class="qb" onclick="qs('Kawai K-300')">Kawai K-300</button>
+    <button class="qb" onclick="qs('Steinway B-211')">Steinway B-211</button>
+</div>
+
+<div class="main">
+
+    <!-- ==================== S1: FITXA TECNICA ==================== -->
+    <div class="section s1" id="sec1" style="display:none">
+        <div class="section-head">
+            <div class="section-num">1</div>
+            <div class="section-title">Fitxa Tecnica</div>
+        </div>
+        <div class="section-body" id="fitxaBody"></div>
+    </div>
+
+    <!-- ==================== S2: RESULTATS DE CERCA ==================== -->
+    <div class="section s2" id="sec2" style="display:none">
+        <div class="section-head">
+            <div class="section-num">2</div>
+            <div class="section-title">Resultats de Cerca</div>
+        </div>
+        <div class="section-body" id="cercaBody"></div>
+    </div>
+
+    <!-- ==================== S3: BENCHMARK ==================== -->
+    <div class="section s3" id="sec3">
+        <div class="section-head">
+            <div class="section-num">3</div>
+            <div class="section-title">Benchmark Comparatiu</div>
+        </div>
+        <div class="section-body">
+            <div class="bench-controls">
+                <input type="text" id="benchInput" placeholder="Afegeix un model Yamaha per comparar..." onkeydown="if(event.key==='Enter')addBench()">
+                <button class="btn-bench" onclick="addBench()">+ Afegir</button>
+                <button class="btn-bench-clear" onclick="clearBench()">Esborrar tot</button>
+            </div>
+            <div class="bench-models-tags bench-colors" id="benchTags"></div>
+            <div id="benchContent">
+                <div class="bench-empty">
+                    <div class="bench-empty-icon">&#9878;</div>
+                    <p>Afegeix 2 o mes models per comparar les seves prestacions, dimensions i perfil.</p>
+                    <div class="bench-suggest">
+                        <button class="qb" onclick="addBenchModel('U1H')">+ U1H</button>
+                        <button class="qb" onclick="addBenchModel('U3H')">+ U3H</button>
+                        <button class="qb" onclick="addBenchModel('UX-3')">+ UX-3</button>
+                        <button class="qb" onclick="addBenchModel('C3')">+ C3</button>
+                        <button class="qb" onclick="addBenchModel('C3X')">+ C3X</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== CATALEG YAMAHA ==================== -->
+    <button class="catalog-toggle" onclick="this.classList.toggle('open');document.getElementById('catPanel').classList.toggle('open')">
+        <span class="arrow">&#9654;</span> &#128218; Cataleg complet Yamaha (des dels anys 60)
+    </button>
+    <div class="catalog-panel" id="catPanel">
+        <div class="cat-controls">
+            <input type="text" id="catFilter" placeholder="Filtrar..." oninput="renderCatalog()">
+            <select id="catType" onchange="renderCatalog()">
+                <option value="">Tots</option>
+                <option value="Vertical">Verticals</option>
+                <option value="Gran Cola">Grans Coles</option>
+            </select>
+            <select id="catProfile" onchange="renderCatalog()">
+                <option value="">Tots perfils</option>
+                <option value="estudiant">Estudiant</option>
+                <option value="intermedi">Intermedi</option>
+                <option value="professional">Professional</option>
+                <option value="premium">Premium</option>
+                <option value="concert">Concert</option>
+            </select>
+        </div>
+        <div class="cat-count" id="catCount"></div>
+        <div class="cat-table-wrap">
+            <table class="cat-table">
+                <thead><tr>
+                    <th onclick="sortCat('model')">Model</th>
+                    <th onclick="sortCat('type')">Tipus</th>
+                    <th onclick="sortCat('years')">Anys</th>
+                    <th onclick="sortCat('dims')">Dimensions</th>
+                    <th onclick="sortCat('weight')">Pes</th>
+                    <th onclick="sortCat('profile')">Perfil</th>
+                    <th>Accions</th>
+                </tr></thead>
+                <tbody id="catBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<footer>
+    Piano Search &middot; Apps XRoig &middot; 2026
+    <p class="footer-version">v3.1</p>
+</footer>
+
+<script>
+// ==================== DATA ====================
+const CATALOG = [
+    // U1 SERIES (121cm)
+    { model:'U1', series:'U1', type:'Vertical', y1:1960, y2:1964, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Model iconic de Yamaha. Referencia mundial en pianos verticals. So brillant i equilibrat, mecanica fiable. El vertical mes venut de la historia.' },
+    { model:'U1D', series:'U1', type:'Vertical', y1:1965, y2:1969, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Segona generacio del U1. Millores en la taula harmonica i ponts. Molt buscats pel seu so calid.' },
+    { model:'U1E', series:'U1', type:'Vertical', y1:1969, y2:1971, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Evolucio del U1D amb millores al mecanisme. Epoca daurada de la fabricacio Yamaha.' },
+    { model:'U1F', series:'U1', type:'Vertical', y1:1971, y2:1973, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Transicio amb nous materials en els martells. Qualitat consistent de l\'era Hamamatsu.' },
+    { model:'U1G', series:'U1', type:'Vertical', y1:1973, y2:1976, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Refinaments en l\'accio i les cordes. Bon equilibri entre potencia i subtilesa.' },
+    { model:'U1H', series:'U1', type:'Vertical', y1:1976, y2:1980, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Un dels models mes populars de segona ma. So madur, mecanica robusta. Excel·lent relacio qualitat-preu.' },
+    { model:'U1M', series:'U1', type:'Vertical', y1:1980, y2:1982, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Transicio curta entre el U1H i el U1A. Rar, valorat pels col·leccionistes.' },
+    { model:'U1A', series:'U1', type:'Vertical', y1:1982, y2:1987, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Inici de la nomenclatura moderna. Millores significatives en l\'amortiment i el tacte.' },
+    { model:'U10A', series:'U1', type:'Vertical', y1:1987, y2:1990, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Nomenclatura numerica. Accio millorada amb regulacio mes precisa.' },
+    { model:'U10BL', series:'U1', type:'Vertical', y1:1990, y2:1994, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'BL = Black Lacquer. Estandard de qualitat alt, molt disponible al mercat de segona ma.' },
+    { model:'U100', series:'U1', type:'Vertical', y1:1994, y2:2000, h:121, w:153, d:61, wt:228, keys:88, ped:3, profile:'professional', desc:'Ultim model amb nomenclatura numerica. Refinat i madur, excel·lent opcio moderna.' },
+    // U2 SERIES (126cm)
+    { model:'U2', series:'U2', type:'Vertical', y1:1960, y2:1965, h:126, w:153, d:62, wt:233, keys:88, ped:3, profile:'professional', desc:'Versio mes alta que el U1. Mes ressonancia i gravetat en els baixos. Descontinuat posteriorment.' },
+    { model:'U2F', series:'U2', type:'Vertical', y1:1971, y2:1973, h:126, w:153, d:62, wt:233, keys:88, ped:3, profile:'professional', desc:'So mes ric que el U1F gracies als 5cm extra d\'alcada. Menys comu, bona oportunitat.' },
+    { model:'U2G', series:'U2', type:'Vertical', y1:1973, y2:1976, h:126, w:153, d:62, wt:233, keys:88, ped:3, profile:'professional', desc:'Continua la linia U2 amb so profund. Bon piano intermedi entre U1 i U3.' },
+    { model:'U2H', series:'U2', type:'Vertical', y1:1976, y2:1980, h:126, w:153, d:62, wt:233, keys:88, ped:3, profile:'professional', desc:'Ultim model popular de la serie U2. Menys comu que el U1H pero excel·lent so.' },
+    // U3 SERIES (131cm)
+    { model:'U3', series:'U3', type:'Vertical', y1:1960, y2:1964, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'El vertical mes gran de la serie U. So comparable a un petit de cola. Referencia per a estudis i conservatoris.' },
+    { model:'U3D', series:'U3', type:'Vertical', y1:1965, y2:1969, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'So ric i potent. Molt apreciat al mercat japones i europeu.' },
+    { model:'U3E', series:'U3', type:'Vertical', y1:1969, y2:1971, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Epoca daurada. Mateixa fusta i qualitat que els coles contemporanis.' },
+    { model:'U3F', series:'U3', type:'Vertical', y1:1971, y2:1973, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Continuacio de l\'excel·lencia. So ampli amb greus profunds.' },
+    { model:'U3G', series:'U3', type:'Vertical', y1:1973, y2:1976, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Refinaments subtils. Respon molt be a la restauracio.' },
+    { model:'U3H', series:'U3', type:'Vertical', y1:1976, y2:1980, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'El rei dels verticals de segona ma. Equilibri perfecte de preu, qualitat i disponibilitat. Busquedissim.' },
+    { model:'U3M', series:'U3', type:'Vertical', y1:1980, y2:1982, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Transicio curta. Mateixa qualitat que el U3H amb algunes millores internes.' },
+    { model:'U3A', series:'U3', type:'Vertical', y1:1982, y2:1987, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Inici de la nomenclatura A. Accio refinada, so mes clar que les generacions anteriors.' },
+    { model:'U30A', series:'U3', type:'Vertical', y1:1987, y2:1990, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Evolucio numerica. Mecanica precisa i consistent. Excel·lent per a estudi avancat.' },
+    { model:'U30BL', series:'U3', type:'Vertical', y1:1990, y2:1994, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Black Lacquer amb qualitat consistent. Molt valorat al mercat europeu.' },
+    { model:'U300', series:'U3', type:'Vertical', y1:1994, y2:2000, h:131, w:153, d:65, wt:246, keys:88, ped:3, profile:'professional', desc:'Versio moderna del U3. So refinat, accio precisa. Dels millors verticals Yamaha.' },
+    { model:'U300SX', series:'U3', type:'Vertical', y1:2000, y2:2010, h:131, w:153, d:65, wt:247, keys:88, ped:3, profile:'professional', desc:'Versio Silent amb sistema de practiques silencioses. Doble funcionalitat acustic/digital.' },
+    // UX SERIES (accio avancada X)
+    { model:'UX', series:'UX', type:'Vertical', y1:1978, y2:1982, h:131, w:153, d:65, wt:252, keys:88, ped:3, profile:'premium', desc:'Serie premium amb accio X (duplex scaling i taula harmonica millorada). So mes ric que el U3 equivalent.' },
+    { model:'UX-1', series:'UX', type:'Vertical', y1:1982, y2:1987, h:121, w:153, d:61, wt:232, keys:88, ped:3, profile:'premium', desc:'Versio 121cm de la serie UX. Accio X en format compacte.' },
+    { model:'UX-3', series:'UX', type:'Vertical', y1:1982, y2:1987, h:131, w:153, d:65, wt:252, keys:88, ped:3, profile:'premium', desc:'La referencia de la serie UX. So excepcional per a un vertical. Accio X completa.' },
+    { model:'UX-5', series:'UX', type:'Vertical', y1:1982, y2:1987, h:131, w:153, d:65, wt:254, keys:88, ped:3, profile:'premium', desc:'Top de la serie UX. Acabats i materials superiors. Rar i molt buscat.' },
+    { model:'UX10A', series:'UX', type:'Vertical', y1:1987, y2:1990, h:121, w:153, d:61, wt:232, keys:88, ped:3, profile:'premium', desc:'Evolucio del UX-1 amb nomenclatura numerica. Accio X millorada.' },
+    { model:'UX30A', series:'UX', type:'Vertical', y1:1987, y2:1990, h:131, w:153, d:65, wt:252, keys:88, ped:3, profile:'premium', desc:'Evolucio del UX-3. Premium amb accio X de tercera generacio.' },
+    { model:'UX10BL', series:'UX', type:'Vertical', y1:1990, y2:1994, h:121, w:153, d:61, wt:232, keys:88, ped:3, profile:'premium', desc:'Black Lacquer premium. Molt bona relacio qualitat-preu al mercat de segona ma.' },
+    { model:'UX30BL', series:'UX', type:'Vertical', y1:1990, y2:1994, h:131, w:153, d:65, wt:252, keys:88, ped:3, profile:'premium', desc:'El millor vertical Yamaha de la seva era. Accio X amb acabat BL. Molt desitjat.' },
+    { model:'UX50BL', series:'UX', type:'Vertical', y1:1990, y2:1994, h:131, w:153, d:65, wt:256, keys:88, ped:3, profile:'premium', desc:'Top absolut de la serie UX. Materials superiors, accio premium. Extremadament rar.' },
+    { model:'UX100', series:'UX', type:'Vertical', y1:1994, y2:2000, h:121, w:153, d:61, wt:233, keys:88, ped:3, profile:'premium', desc:'Versio final de la serie UX en format 121cm. Acabat de lacat premium.' },
+    { model:'UX300', series:'UX', type:'Vertical', y1:1994, y2:2000, h:131, w:153, d:65, wt:253, keys:88, ped:3, profile:'premium', desc:'Versio final de la serie UX en format 131cm. Qualitat excepcional.' },
+    // YUS SERIES
+    { model:'YUS1', series:'YUS', type:'Vertical', y1:2000, y2:null, h:121, w:153, d:61, wt:236, keys:88, ped:3, profile:'premium', desc:'Successor del UX100. Accio millorada, so ric i complex. Tope de gamma vertical 121cm.' },
+    { model:'YUS3', series:'YUS', type:'Vertical', y1:2000, y2:null, h:131, w:153, d:65, wt:255, keys:88, ped:3, profile:'premium', desc:'Successor del UX300. El millor vertical Yamaha de produccio actual junt amb el YUS5.' },
+    { model:'YUS5', series:'YUS', type:'Vertical', y1:2000, y2:null, h:131, w:153, d:65, wt:258, keys:88, ped:3, profile:'premium', desc:'El vertical Yamaha mes premium de produccio regular. Acabats artesanals, so de concert.' },
+    { model:'SU7', series:'SU', type:'Vertical', y1:2002, y2:null, h:131, w:153, d:65, wt:261, keys:88, ped:3, profile:'concert', desc:'El vertical definitiu de Yamaha. Produccio limitada a Hamamatsu. So i tacte comparables a un cola.' },
+    // b SERIES
+    { model:'b1', series:'b', type:'Vertical', y1:2007, y2:null, h:109, w:148, d:54, wt:194, keys:88, ped:3, profile:'estudiant', desc:'Model compacte d\'entrada. Ideal per espais petits i estudiants principiants. Fabricat a Indonesia.' },
+    { model:'b2', series:'b', type:'Vertical', y1:2007, y2:null, h:113, w:149, d:54, wt:199, keys:88, ped:3, profile:'estudiant', desc:'Lleugerament mes gran que el b1. Millor projeccio de so. Bo per a principiants ambiciosos.' },
+    { model:'b3', series:'b', type:'Vertical', y1:2007, y2:null, h:121, w:149, d:56, wt:213, keys:88, ped:3, profile:'intermedi', desc:'El mes gran de la serie b. 121cm com el U1 pero mes lleuger i economic.' },
+    // P SERIES
+    { model:'P116', series:'P', type:'Vertical', y1:2010, y2:null, h:116, w:150, d:58, wt:208, keys:88, ped:3, profile:'intermedi', desc:'Model intermedi entre la serie b i la serie U. Fabricat a Indonesia, qualitat consistent.' },
+    { model:'P121', series:'P', type:'Vertical', y1:2019, y2:null, h:121, w:150, d:60, wt:214, keys:88, ped:3, profile:'intermedi', desc:'Substitut del b3 amb millores. Bona opcio com a primer piano serios.' },
+    // W SERIES (fusta)
+    { model:'W101', series:'W', type:'Vertical', y1:1976, y2:1982, h:121, w:153, d:61, wt:232, keys:88, ped:3, profile:'professional', desc:'U1 amb acabat de fusta de noguera o cirerer. Esteticament precios, so identic al U1H.' },
+    { model:'W102', series:'W', type:'Vertical', y1:1976, y2:1986, h:131, w:153, d:65, wt:250, keys:88, ped:3, profile:'professional', desc:'U3 amb acabat de fusta. Molt decoratiu, buscat per a salons elegants.' },
+    { model:'W106', series:'W', type:'Vertical', y1:1983, y2:1996, h:131, w:153, d:65, wt:254, keys:88, ped:3, profile:'premium', desc:'Model premium amb acabat de fusta de noguera. Accio tipus UX. Rar i exclusiu.' },
+    { model:'WX102', series:'W', type:'Vertical', y1:1988, y2:1996, h:131, w:153, d:65, wt:256, keys:88, ped:3, profile:'premium', desc:'Combinacio d\'acabat W amb accio X. Lo millor dels dos mons.' },
+    // MC / YU
+    { model:'MC108', series:'MC', type:'Vertical', y1:1981, y2:1989, h:108, w:149, d:53, wt:185, keys:88, ped:3, profile:'estudiant', desc:'Model compacte per apartaments petits. So limitat pero mecanica Yamaha fiable.' },
+    { model:'MC301', series:'MC', type:'Vertical', y1:1981, y2:1987, h:121, w:153, d:61, wt:224, keys:88, ped:3, profile:'intermedi', desc:'Model intermedi amb acabat de noguera. Bo per a us domestic.' },
+    { model:'YU10', series:'YU', type:'Vertical', y1:2000, y2:2010, h:121, w:152, d:61, wt:220, keys:88, ped:3, profile:'intermedi', desc:'So equilibrat, bona opcio d\'entrada a Yamaha de qualitat.' },
+    { model:'YU33', series:'YU', type:'Vertical', y1:2010, y2:null, h:131, w:152, d:62, wt:238, keys:88, ped:3, profile:'professional', desc:'Model 131cm de la linia YU. Qualitat per sobre de la serie b, per sota del U3.' },
+    // GRANS COLES - G SERIES
+    { model:'G1', series:'G', type:'Gran Cola', y1:1967, y2:1991, h:101, w:149, d:161, wt:282, keys:88, ped:3, profile:'intermedi', desc:'Baby grand classic. So limitat pel tamany pero elegant. Ideal per a espais petits.' },
+    { model:'G2', series:'G', type:'Gran Cola', y1:1967, y2:1991, h:101, w:149, d:170, wt:300, keys:88, ped:3, profile:'professional', desc:'Gran cola de mida mitja. Bon equilibri entre tamany i so. Molt popular als conservatoris.' },
+    { model:'G3', series:'G', type:'Gran Cola', y1:1967, y2:1991, h:101, w:149, d:183, wt:315, keys:88, ped:3, profile:'professional', desc:'El model mes popular de la serie G. 183cm ofereixen un so complet i projectat.' },
+    { model:'G5', series:'G', type:'Gran Cola', y1:1967, y2:1991, h:101, w:149, d:200, wt:340, keys:88, ped:3, profile:'professional', desc:'Gran cola de 2 metres. So majestuos, ideal per a sales de recitals.' },
+    { model:'G7', series:'G', type:'Gran Cola', y1:1967, y2:1991, h:102, w:153, d:227, wt:385, keys:88, ped:3, profile:'premium', desc:'Semi-concert de la serie G. So potent i ric. Usat en sales petites i estudis de gravacio.' },
+    // GRANS COLES - C SERIES (1991-2012)
+    { model:'C1', series:'C', type:'Gran Cola', y1:1991, y2:2012, h:101, w:149, d:161, wt:290, keys:88, ped:3, profile:'professional', desc:'Inici de la serie C, successora de la G. So mes brillant i clar. Format compacte.' },
+    { model:'C2', series:'C', type:'Gran Cola', y1:1991, y2:2012, h:101, w:149, d:173, wt:305, keys:88, ped:3, profile:'professional', desc:'Gran cola de 173cm. Bo per a estudis i escoles de musica.' },
+    { model:'C3', series:'C', type:'Gran Cola', y1:1991, y2:2012, h:101, w:149, d:186, wt:320, keys:88, ped:3, profile:'professional', desc:'El model mes popular de Yamaha. Referencia mundial per conservatoris i recitals.' },
+    { model:'C5', series:'C', type:'Gran Cola', y1:1991, y2:2012, h:101, w:149, d:200, wt:340, keys:88, ped:3, profile:'professional', desc:'Gran cola de 2 metres. So potent amb greus profunds. Ideal per a sales de concert petites.' },
+    { model:'C6', series:'C', type:'Gran Cola', y1:1991, y2:2012, h:102, w:154, d:212, wt:375, keys:88, ped:3, profile:'premium', desc:'Semi-concert. So majestuos i projectat. Pont entre el C5 i el C7.' },
+    { model:'C7', series:'C', type:'Gran Cola', y1:1991, y2:2012, h:102, w:155, d:227, wt:415, keys:88, ped:3, profile:'premium', desc:'Semi-concert de 227cm. So excepcional, utilitzat per pianistes professionals arreu del mon.' },
+    // GRANS COLES - CX SERIES (2012+)
+    { model:'C1X', series:'CX', type:'Gran Cola', y1:2012, y2:null, h:101, w:149, d:161, wt:290, keys:88, ped:3, profile:'professional', desc:'Evolucio del C1 amb herencia del CFX. Taula harmonica millorada i so mes ric.' },
+    { model:'C2X', series:'CX', type:'Gran Cola', y1:2012, y2:null, h:101, w:149, d:173, wt:305, keys:88, ped:3, profile:'professional', desc:'Evolucio del C2. So mes profund i millor sustain gracies a les millores heretades del CFX.' },
+    { model:'C3X', series:'CX', type:'Gran Cola', y1:2012, y2:null, h:101, w:149, d:186, wt:320, keys:88, ped:3, profile:'professional', desc:'El gran cola mes popular del mon. Herencia directa del CFX. So brillant i expressiu.' },
+    { model:'C5X', series:'CX', type:'Gran Cola', y1:2012, y2:null, h:101, w:149, d:200, wt:340, keys:88, ped:3, profile:'professional', desc:'Gran cola de 2 metres amb tecnologia CX. So ampli i projectat.' },
+    { model:'C6X', series:'CX', type:'Gran Cola', y1:2012, y2:null, h:102, w:154, d:212, wt:375, keys:88, ped:3, profile:'premium', desc:'Semi-concert amb ADN del CFX. So de concert en format manejable.' },
+    { model:'C7X', series:'CX', type:'Gran Cola', y1:2012, y2:null, h:102, w:155, d:227, wt:415, keys:88, ped:3, profile:'premium', desc:'El semi-concert definitiu de la linia CX. Per a les sales mes exigents.' },
+    // GC / GB
+    { model:'GC1', series:'GC', type:'Gran Cola', y1:2005, y2:null, h:101, w:149, d:161, wt:286, keys:88, ped:3, profile:'intermedi', desc:'Gran cola compacte d\'entrada. Opcio accessible per tenir un cola Yamaha.' },
+    { model:'GC2', series:'GC', type:'Gran Cola', y1:2005, y2:null, h:101, w:149, d:173, wt:305, keys:88, ped:3, profile:'intermedi', desc:'Gran cola 173cm d\'entrada. Millor so que el GC1 per la mida superior.' },
+    { model:'GB1K', series:'GB', type:'Gran Cola', y1:2006, y2:null, h:99, w:146, d:151, wt:261, keys:88, ped:3, profile:'estudiant', desc:'El baby grand mes petit i economic de Yamaha. 151cm. Ideal com a primer cola.' },
+    { model:'A1L', series:'A', type:'Gran Cola', y1:1998, y2:2006, h:99, w:146, d:149, wt:256, keys:88, ped:3, profile:'estudiant', desc:'Predecessor del GB1K. Baby grand ultra-compacte. Discontinuat.' },
+    // S SERIES (premium artesanal)
+    { model:'S3X', series:'S', type:'Gran Cola', y1:2012, y2:null, h:101, w:150, d:186, wt:330, keys:88, ped:3, profile:'premium', desc:'Serie S premium. Fabricat a ma a Hamamatsu. So excepcionalment ric amb personalitat propia.' },
+    { model:'S4', series:'S', type:'Gran Cola', y1:2002, y2:2012, h:101, w:150, d:191, wt:338, keys:88, ped:3, profile:'premium', desc:'Gran cola premium de 191cm. Fabricat artesanalment. So comparable a Steinway B.' },
+    { model:'S5X', series:'S', type:'Gran Cola', y1:2012, y2:null, h:101, w:150, d:200, wt:348, keys:88, ped:3, profile:'premium', desc:'Substitut del S4. Herencia del CFX amb fabricacio artesanal. Excepcional.' },
+    { model:'S6', series:'S', type:'Gran Cola', y1:2002, y2:2012, h:102, w:154, d:212, wt:382, keys:88, ped:3, profile:'premium', desc:'Semi-concert premium. Fabricacio artesanal Hamamatsu. So de concert en format semi.' },
+    { model:'S6X', series:'S', type:'Gran Cola', y1:2012, y2:null, h:102, w:154, d:212, wt:382, keys:88, ped:3, profile:'premium', desc:'Evolucio del S6 amb tecnologia del CFX. Un dels millors semi-concerts del mercat.' },
+    // CF SERIES (concert)
+    { model:'CF4', series:'CF', type:'Gran Cola', y1:2010, y2:null, h:102, w:155, d:191, wt:340, keys:88, ped:3, profile:'concert', desc:'Gran cola de concert en format 191cm. Produccio limitada a Hamamatsu.' },
+    { model:'CF6', series:'CF', type:'Gran Cola', y1:2010, y2:null, h:102, w:155, d:212, wt:390, keys:88, ped:3, profile:'concert', desc:'Gran cola de concert 212cm. Qualitat extrema, un dels millors pianos fabricats per Yamaha.' },
+    { model:'CFIIIS', series:'CF', type:'Gran Cola', y1:1991, y2:2010, h:103, w:157, d:275, wt:490, keys:88, ped:3, profile:'concert', desc:'Gran cola de concert de 275cm. Referencia absoluta de Yamaha durant dues decades als escenaris mes importants del mon.' },
+    { model:'CFX', series:'CF', type:'Gran Cola', y1:2010, y2:null, h:103, w:160, d:275, wt:495, keys:88, ped:3, profile:'concert', desc:'El piano de concert definitiu de Yamaha. 275cm, 495kg. Rivalitza amb Steinway D. Usat per guanyadors de concursos internacionals.' },
+];
+
+const PROF_LABEL = { estudiant:'Estudiant', intermedi:'Intermedi', professional:'Professional', premium:'Premium', concert:'Concert' };
+const PROF_CLASS = { estudiant:'pb-estudiant', intermedi:'pb-intermedi', professional:'pb-professional', premium:'pb-premium', concert:'pb-concert' };
+const PROF_ORDER = { estudiant:1, intermedi:2, professional:3, premium:4, concert:5 };
+
+// Image URLs per series (representative product images)
+const SERIES_IMAGES = {
+    'U1': 'https://europe.yamaha.com/en/files/U1_TA3_PE_Front_d3db2bf51b6b38aeb95b8e856cb42ac7.jpg',
+    'U2': 'https://europe.yamaha.com/en/files/U1_TA3_PE_Front_d3db2bf51b6b38aeb95b8e856cb42ac7.jpg',
+    'U3': 'https://europe.yamaha.com/en/files/U3_PE_Front_a0050e7b4d8dcb85ecd47c2a8c23fc10.jpg',
+    'UX': 'https://europe.yamaha.com/en/files/U3_PE_Front_a0050e7b4d8dcb85ecd47c2a8c23fc10.jpg',
+    'YUS': 'https://europe.yamaha.com/en/files/YUS5_PE_Front_62ff3e91ce3ab9e2c59eaacfac8f6746.jpg',
+    'SU': 'https://europe.yamaha.com/en/files/SU7_PE_Front_5c53fa51ea33e8bd05c1427a59d58c2c.jpg',
+    'b': 'https://europe.yamaha.com/en/files/b3_PE_Front_d74ae64bf1fb52f4ae3f44e5a3f1ebd1.jpg',
+    'P': 'https://europe.yamaha.com/en/files/P121_PE_Front_e9fa539da9925cf5fb8a05b6dfdc7f62.jpg',
+    'W': 'https://europe.yamaha.com/en/files/U3_PE_Front_a0050e7b4d8dcb85ecd47c2a8c23fc10.jpg',
+    'MC': 'https://europe.yamaha.com/en/files/b1_PE_Front_ae69c20b5bb77e96e6ab4b6c05b19ddf.jpg',
+    'YU': 'https://europe.yamaha.com/en/files/U1_TA3_PE_Front_d3db2bf51b6b38aeb95b8e856cb42ac7.jpg',
+    'G': 'https://europe.yamaha.com/en/files/C3X_PE_Front_0e1d6c50fbc33a90f1e8ead3af4f74c1.jpg',
+    'C': 'https://europe.yamaha.com/en/files/C3X_PE_Front_0e1d6c50fbc33a90f1e8ead3af4f74c1.jpg',
+    'CX': 'https://europe.yamaha.com/en/files/C3X_PE_Front_0e1d6c50fbc33a90f1e8ead3af4f74c1.jpg',
+    'GC': 'https://europe.yamaha.com/en/files/GC2_PE_Front_1c14c0f3d2f1d3e5d3e5d3e5d3e5d3e5.jpg',
+    'GB': 'https://europe.yamaha.com/en/files/GB1K_PE_Side_3be3e5660f0faeef5b7c5e1e8e5cd9c3.jpg',
+    'A': 'https://europe.yamaha.com/en/files/GB1K_PE_Side_3be3e5660f0faeef5b7c5e1e8e5cd9c3.jpg',
+    'S': 'https://europe.yamaha.com/en/files/S6X_PE_Front_64be01fb6e77a1fd0d6e8aef5e870dc5.jpg',
+    'CF': 'https://europe.yamaha.com/en/files/CFX_PE_Side_4acb30da0b0a55cfbbda8a1f6c4e84c1.jpg',
+};
+
+function getModelImage(model, series) {
+    return SERIES_IMAGES[series] || '';
+}
+
+function getGoogleImgUrl(model) {
+    return 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent('Yamaha ' + model + ' piano');
+}
+
+// ==================== STORES ====================
+const STORES = {
+    catalunya: [
+        { name:'La Casa dels Pianos', city:'Barcelona', type:'specialist', url:'https://www.lacasadelspianos.com' },
+        { name:'Art Guinardo', city:'Barcelona', type:'specialist', url:'https://artguinardo.com' },
+        { name:'Audenis', city:'Barcelona', type:'specialist', url:'https://www.audenis.com' },
+        { name:'Corrales Pianos', city:'Barcelona', type:'specialist', url:'https://www.corralespianos.com' },
+        { name:'Musical Fuste', city:'Barcelona', type:'specialist', url:'https://www.musicalfuste.com' },
+        { name:'Quatre40', city:'Barcelona', type:'specialist', url:'https://www.quatre40.com' },
+        { name:'Music Sales', city:'Barcelona', type:'dealer', url:'https://www.musicsales.es' },
+        { name:'PIANOMET', city:'Catalunya', type:'specialist', url:'https://www.pianomet.com' },
+    ],
+    espanya: [
+        { name:'Pianissimo', city:'Madrid', type:'specialist', url:'https://www.pianisimo.es' },
+        { name:'Casa Hazen', city:'Madrid', type:'specialist', url:'https://www.casahazen.com' },
+        { name:'Pianos Low Cost', city:'Madrid', type:'dealer', url:'https://www.pianoslowcost.es' },
+        { name:'Unipiano', city:'Valencia', type:'specialist', url:'https://www.unipiano.es' },
+    ],
+    europa: [
+        { name:'Piano\'s Maene', city:'Belgica', type:'specialist', url:'https://www.maene.be' },
+        { name:'Thomann', city:'Alemanya', type:'dealer', url:'https://www.thomann.de' },
+        { name:'Klavier Kreisel', city:'Alemanya', type:'specialist', url:'https://www.klavier-kreisel.de' },
+        { name:'Piano Centre', city:'Londres, UK', type:'specialist', url:'https://www.pianocentre.co.uk' },
+    ],
+    japo: [
+        { name:'Japan Piano Service', city:'Japo', type:'specialist', url:'https://www.japanpianoservice.com' },
+        { name:'Piano Plaza', city:'Tokyo', type:'specialist', url:'https://www.pianoplaza.com' },
+        { name:'Shimamura Music', city:'Japo', type:'dealer', url:'https://www.shimamura.co.jp' },
+        { name:'Yahoo Auctions Japan', city:'Japo', type:'auction', url:'https://auctions.yahoo.co.jp' },
+    ],
+    marketplaces: [
+        { name:'Wallapop', city:'Espanya', type:'marketplace', url:'https://es.wallapop.com', tpl:'https://es.wallapop.com/app/search?keywords={q}&category_ids=12467' },
+        { name:'Milanuncios', city:'Espanya', type:'marketplace', url:'https://www.milanuncios.com', tpl:'https://www.milanuncios.com/pianos/{q}.htm' },
+        { name:'eBay Espanya', city:'Europa', type:'marketplace', url:'https://www.ebay.es', tpl:'https://www.ebay.es/sch/i.html?_nkw={q}&_sacat=180015' },
+        { name:'Leboncoin', city:'Franca', type:'marketplace', url:'https://www.leboncoin.fr', tpl:'https://www.leboncoin.fr/recherche?text={q}&category=26' },
+        { name:'Kleinanzeigen', city:'Alemanya', type:'marketplace', url:'https://www.kleinanzeigen.de', tpl:'https://www.kleinanzeigen.de/s-musikinstrumente/{q}/k0c74' },
+    ]
+};
+
+function storeSearchUrl(store, model) {
+    if (store.tpl) return store.tpl.replace('{q}', encodeURIComponent(model));
+    return 'https://www.google.com/search?q=' + encodeURIComponent(model + ' piano site:' + new URL(store.url).hostname);
+}
+
+// ==================== S1: FITXA TECNICA ====================
+function findModel(query) {
+    const q = query.toUpperCase().replace(/YAMAHA\s*/i,'').replace(/\s+/g,'').trim();
+    return CATALOG.find(p => {
+        const m = p.model.toUpperCase().replace(/[\s\/]/g,'');
+        return m === q || q === m;
+    }) || CATALOG.find(p => {
+        const m = p.model.toUpperCase().replace(/[\s\/]/g,'');
+        return m.startsWith(q) || q.startsWith(m);
+    });
+}
+
+function renderFitxa(piano) {
+    const sec = document.getElementById('sec1');
+    const body = document.getElementById('fitxaBody');
+    if (!piano) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+
+    const isGrand = piano.type === 'Gran Cola';
+    const imgUrl = getModelImage(piano.model, piano.series);
+    const imgGoogleUrl = getGoogleImgUrl(piano.model);
+    const years = piano.y1 + ' - ' + (piano.y2 || 'actualitat');
+    const dim1Label = isGrand ? 'Llargada' : 'Alcada';
+    const dim1Val = isGrand ? piano.d : piano.h;
+
+    body.innerHTML = `
+    <div class="fitxa">
+        <div class="fitxa-img-wrap">
+            <img src="${imgUrl}" alt="Yamaha ${piano.model}"
+                 onerror="this.onerror=null;this.style.background='linear-gradient(135deg,#1a1a2e,#0f0c29)';this.style.padding='40px';this.alt='Imatge no disponible';this.src='data:image/svg+xml,${encodeURIComponent(pianoSVG(isGrand, piano))}'">
+            <div class="img-caption">Yamaha ${piano.model} &middot; ${piano.type} &middot; Serie ${piano.series}</div>
+            <a class="img-link" href="${imgGoogleUrl}" target="_blank">&#128247; Veure fotos reals a Google Imatges &#8599;</a>
+        </div>
+        <div class="fitxa-specs">
+            <h2>Yamaha ${piano.model}</h2>
+            <div class="fitxa-subtitle">${piano.type} &middot; Serie ${piano.series} &middot; ${years}</div>
+
+            <div class="dims-grid">
+                <div class="dim-box">
+                    <div class="dim-val">${dim1Val}<span class="dim-unit"> cm</span></div>
+                    <div class="dim-label">${dim1Label}</div>
+                </div>
+                <div class="dim-box">
+                    <div class="dim-val">${piano.w}<span class="dim-unit"> cm</span></div>
+                    <div class="dim-label">Amplada</div>
+                </div>
+                <div class="dim-box">
+                    <div class="dim-val">${isGrand ? piano.h : piano.d}<span class="dim-unit"> cm</span></div>
+                    <div class="dim-label">${isGrand ? 'Alcada' : 'Profunditat'}</div>
+                </div>
+            </div>
+
+            <div class="extra-specs">
+                <div class="es-item"><div class="es-val">${piano.wt} kg</div><div class="es-label">Pes</div></div>
+                <div class="es-item"><div class="es-val">${piano.keys}</div><div class="es-label">Tecles</div></div>
+                <div class="es-item"><div class="es-val">${piano.ped}</div><div class="es-label">Pedals</div></div>
+                <div class="es-item"><div class="es-val">${years}</div><div class="es-label">Produccio</div></div>
+            </div>
+
+            <div class="profile-line">
+                <span class="profile-badge ${PROF_CLASS[piano.profile]}">${PROF_LABEL[piano.profile]}</span>
+            </div>
+
+            <div class="fitxa-desc">${piano.desc}</div>
+        </div>
+    </div>`;
+}
+
+function pianoSVG(isGrand, p) {
+    if (isGrand) {
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 220">
+            <rect x="30" y="20" width="240" height="160" rx="80" ry="40" fill="none" stroke="%23ffaa00" stroke-width="1.5" opacity="0.4"/>
+            <rect x="40" y="150" width="200" height="12" rx="2" fill="%23ffaa00" opacity="0.25"/>
+            <text x="150" y="100" text-anchor="middle" fill="%23ffaa00" font-size="22" font-weight="700" font-family="system-ui">${p.model}</text>
+            <text x="150" y="125" text-anchor="middle" fill="%23ffaa00" font-size="11" opacity="0.5" font-family="system-ui">${p.d}cm x ${p.w}cm x ${p.h}cm</text>
+            <text x="150" y="200" text-anchor="middle" fill="%23ffffff" font-size="10" opacity="0.3" font-family="system-ui">Gran Cola</text>
+        </svg>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240">
+        <rect x="30" y="20" width="140" height="170" rx="4" fill="none" stroke="%23ffaa00" stroke-width="1.5" opacity="0.4"/>
+        <rect x="35" y="158" width="130" height="12" rx="2" fill="%23ffaa00" opacity="0.25"/>
+        <rect x="55" y="190" width="10" height="25" rx="2" fill="%23ffaa00" opacity="0.15"/>
+        <rect x="95" y="190" width="10" height="25" rx="2" fill="%23ffaa00" opacity="0.15"/>
+        <rect x="135" y="190" width="10" height="25" rx="2" fill="%23ffaa00" opacity="0.15"/>
+        <text x="100" y="90" text-anchor="middle" fill="%23ffaa00" font-size="22" font-weight="700" font-family="system-ui">${p.model}</text>
+        <text x="100" y="115" text-anchor="middle" fill="%23ffaa00" font-size="10" opacity="0.5" font-family="system-ui">${p.h}cm x ${p.w}cm x ${p.d}cm</text>
+        <text x="100" y="230" text-anchor="middle" fill="%23ffffff" font-size="10" opacity="0.3" font-family="system-ui">Vertical</text>
+    </svg>`;
+}
+
+// ==================== S2: RESULTATS CERCA ====================
+function getApiBase() {
+    const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+    return isLocal ? 'https://i-xr.duckdns.org/piano-search/api/index.php' : 'api/index.php';
+}
+
+async function renderCerca(model, region) {
+    const sec = document.getElementById('sec2');
+    const body = document.getElementById('cercaBody');
+    sec.style.display = '';
+
+    const regionLabel = {catalunya:'Catalunya',espanya:'Espanya',europa:'Europa',japo:'Japo'}[region] || region;
+
+    // Show loading
+    body.innerHTML = `
+        <div class="search-region-info">Cercant <strong>"${model}"</strong> a <strong>${regionLabel}</strong>...</div>
+        <div class="cerca-loading">
+            <div class="cerca-spinner"></div>
+            <div>Cercant pianos de 2a ma a botigues especialitzades i marketplaces...</div>
+        </div>`;
+
+    // Fetch real results from API
+    let apiResults = [];
+    let sources = [];
+    try {
+        const url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
+        const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+        const res = await fetch(url, isLocal ? {} : { credentials: 'same-origin' });
+        const data = await res.json();
+        apiResults = data.results || [];
+        sources = data.sources || [];
+    } catch (e) {
+        console.error('API error:', e);
+    }
+
+    // Build table rows
+    let realRows = '';
+    if (apiResults.length > 0) {
+        apiResults.forEach(r => {
+            const thumb = r.image ? `<img class="td-thumb" src="${r.image}" alt="" onerror="this.style.display='none'">` : '';
+            const yearCell = r.year || '-';
+            const priceCell = r.price || '-';
+            const titleShort = r.title.length > 65 ? r.title.substring(0, 62) + '...' : r.title;
+            const condBadge = r.condition === '2a_ma' ? '<span class="cond-badge cond-2a">2a ma</span>'
+                            : r.condition === 'nou' ? '<span class="cond-badge cond-nou">Nou</span>'
+                            : '<span class="cond-badge cond-unk">-</span>';
+            realRows += `<tr>
+                <td class="td-store">${r.store}</td>
+                <td class="td-loc">${r.location}</td>
+                <td class="td-title" title="${r.title.replace(/"/g, '&quot;')}">${thumb} ${titleShort}</td>
+                <td class="td-cond">${condBadge}</td>
+                <td class="td-year">${yearCell}</td>
+                <td class="td-price">${priceCell}</td>
+                <td class="td-link"><a href="${r.link}" target="_blank">Veure oferta &#8599;</a></td>
+            </tr>`;
+        });
+    }
+
+    const srcBadges = sources.map(s => `<span class="src-badge">${s}</span>`).join('');
+
+    body.innerHTML = `
+        <div class="search-region-info">Resultats per <strong>"${model}"</strong> a <strong>${regionLabel}</strong></div>
+
+        <div class="cerca-count">
+            <strong>${apiResults.length}</strong> ofertes de 2a ma trobades
+            ${srcBadges ? `<div class="cerca-sources">Fonts: ${srcBadges}</div>` : ''}
+        </div>
+
+        ${apiResults.length > 0 ? `
+        <div class="results-wrap">
+            <table class="results-table">
+                <thead><tr>
+                    <th>Establiment</th>
+                    <th>Ubicacio</th>
+                    <th>Anunci</th>
+                    <th>Estat</th>
+                    <th>Any</th>
+                    <th>Preu</th>
+                    <th>Oferta</th>
+                </tr></thead>
+                <tbody>${realRows}</tbody>
+            </table>
+        </div>` : `
+        <div class="cerca-none">
+            Cap resultat trobat per "${model}" a ${regionLabel}. Prova amb un altre model o una regio mes amplia.
+        </div>`}`;
+}
+
+// ==================== S3: BENCHMARK ====================
+let benchModels = [];
+
+function addBench() {
+    const input = document.getElementById('benchInput');
+    const q = input.value.trim();
+    if (!q) return;
+    addBenchModel(q);
+    input.value = '';
+}
+
+function addBenchModel(name) {
+    if (benchModels.length >= 6) return;
+    const p = findModel(name);
+    if (!p) { alert('Model "' + name + '" no trobat al cataleg Yamaha.'); return; }
+    if (benchModels.find(m => m.model === p.model)) return;
+    benchModels.push(p);
+    renderBench();
+}
+
+function removeBench(model) {
+    benchModels = benchModels.filter(m => m.model !== model);
+    renderBench();
+}
+
+function clearBench() {
+    benchModels = [];
+    renderBench();
+}
+
+function renderBench() {
+    const tags = document.getElementById('benchTags');
+    const content = document.getElementById('benchContent');
+
+    tags.innerHTML = benchModels.map((m, i) =>
+        `<span class="bench-tag bt-${i}">${m.model} <span class="bt-x" onclick="removeBench('${m.model}')">&#10005;</span></span>`
+    ).join('');
+
+    if (benchModels.length < 2) {
+        content.innerHTML = `<div class="bench-empty">
+            <div class="bench-empty-icon">&#9878;</div>
+            <p>Afegeix ${benchModels.length === 0 ? '2 o mes' : '1 mes'} model${benchModels.length === 0 ? 's' : ''} per comparar.</p>
+            <div class="bench-suggest">
+                ${['U1H','U3H','UX-3','C3','C3X','CFX'].filter(m => !benchModels.find(b => b.model === m)).slice(0,4).map(m =>
+                    `<button class="qb" onclick="addBenchModel('${m}')">+ ${m}</button>`
+                ).join('')}
+            </div>
+        </div>`;
+        return;
+    }
+
+    const colors = ['var(--c0)','var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)'];
+
+    // Compute comparison rows
+    const rows = [];
+    const isAllGrand = benchModels.every(m => m.type === 'Gran Cola');
+    const isAllUpright = benchModels.every(m => m.type === 'Vertical');
+
+    // Main dimension
+    const mainDim = m => m.type === 'Gran Cola' ? m.d : m.h;
+    const mainDimLabel = isAllGrand ? 'Llargada' : isAllUpright ? 'Alcada' : 'Dimensio principal';
+    const maxDim = Math.max(...benchModels.map(mainDim));
+    rows.push({ label: mainDimLabel + ' (cm)', values: benchModels.map((m,i) => ({
+        val: mainDim(m), display: mainDim(m) + ' cm', pct: (mainDim(m)/maxDim)*100, color: colors[i]
+    }))});
+
+    // Width
+    const maxW = Math.max(...benchModels.map(m => m.w));
+    rows.push({ label: 'Amplada (cm)', values: benchModels.map((m,i) => ({
+        val: m.w, display: m.w + ' cm', pct: (m.w/maxW)*100, color: colors[i]
+    }))});
+
+    // Depth / height for grands
+    const secDim = m => m.type === 'Gran Cola' ? m.h : m.d;
+    const secLabel = isAllGrand ? 'Alcada (cm)' : isAllUpright ? 'Profunditat (cm)' : 'Dim. secundaria (cm)';
+    const maxSec = Math.max(...benchModels.map(secDim));
+    rows.push({ label: secLabel, values: benchModels.map((m,i) => ({
+        val: secDim(m), display: secDim(m) + ' cm', pct: (secDim(m)/maxSec)*100, color: colors[i]
+    }))});
+
+    // Weight
+    const maxWt = Math.max(...benchModels.map(m => m.wt));
+    rows.push({ label: 'Pes (kg)', values: benchModels.map((m,i) => ({
+        val: m.wt, display: m.wt + ' kg', pct: (m.wt/maxWt)*100, color: colors[i]
+    }))});
+
+    // Profile (as numeric)
+    rows.push({ label: 'Perfil / Qualitat', values: benchModels.map((m,i) => ({
+        val: PROF_ORDER[m.profile], display: PROF_LABEL[m.profile], pct: (PROF_ORDER[m.profile]/5)*100, color: colors[i]
+    }))});
+
+    // Production start
+    const maxYear = Math.max(...benchModels.map(m => m.y1));
+    const minYear = Math.min(...benchModels.map(m => m.y1));
+    const yearRange = maxYear - minYear || 1;
+    rows.push({ label: 'Inici produccio', values: benchModels.map((m,i) => ({
+        val: m.y1, display: m.y1 + (m.y2 ? '-' + m.y2 : '+'), pct: ((m.y1 - minYear + 1)/(yearRange + 1))*100, color: colors[i]
+    }))});
+
+    let tableHtml = '<div class="bench-table-wrap bench-colors"><table class="bench-table"><thead><tr><th></th>';
+    benchModels.forEach((m, i) => {
+        tableHtml += `<th style="color:${colors[i]}">${m.model}</th>`;
+    });
+    tableHtml += '</tr></thead><tbody>';
+
+    // Type row
+    tableHtml += '<tr><td class="row-label">Tipus</td>';
+    benchModels.forEach(m => { tableHtml += `<td>${m.type}</td>`; });
+    tableHtml += '</tr>';
+
+    // Dimension rows with bars
+    rows.forEach(row => {
+        tableHtml += `<tr><td class="row-label">${row.label}</td>`;
+        row.values.forEach(v => {
+            tableHtml += `<td><div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width:${v.pct}%;background:${v.color}"></div></div>
+                <span class="bar-val" style="color:${v.color}">${v.display}</span>
+            </div></td>`;
+        });
+        tableHtml += '</tr>';
+    });
+
+    // Profile badges
+    tableHtml += '<tr><td class="row-label">Classificacio</td>';
+    benchModels.forEach(m => {
+        tableHtml += `<td class="bench-profile"><span class="profile-badge ${PROF_CLASS[m.profile]}">${PROF_LABEL[m.profile]}</span></td>`;
+    });
+    tableHtml += '</tr>';
+
+    // Series
+    tableHtml += '<tr><td class="row-label">Serie</td>';
+    benchModels.forEach(m => { tableHtml += `<td>${m.series}</td>`; });
+    tableHtml += '</tr>';
+
+    tableHtml += '</tbody></table></div>';
+
+    // Summary text
+    const heaviest = benchModels.reduce((a,b) => a.wt > b.wt ? a : b);
+    const lightest = benchModels.reduce((a,b) => a.wt < b.wt ? a : b);
+    const biggest = benchModels.reduce((a,b) => mainDim(a) > mainDim(b) ? a : b);
+    const bestProf = benchModels.reduce((a,b) => PROF_ORDER[a.profile] > PROF_ORDER[b.profile] ? a : b);
+
+    let summary = `<div style="margin-top:20px;padding:18px;background:rgba(180,100,255,0.04);border:1px solid rgba(180,100,255,0.1);border-radius:12px">
+        <div style="font-weight:700;color:#c89aff;margin-bottom:10px;font-size:0.95em">Resum del benchmark</div>
+        <div style="font-size:0.9em;color:rgba(255,255,255,0.55);line-height:1.7">
+            <strong style="color:#e0e0e0">Mes gran:</strong> ${biggest.model} (${mainDim(biggest)}cm) &mdash;
+            <strong style="color:#e0e0e0">Mes pesat:</strong> ${heaviest.model} (${heaviest.wt}kg) &mdash;
+            <strong style="color:#e0e0e0">Mes lleuger:</strong> ${lightest.model} (${lightest.wt}kg)<br>
+            <strong style="color:#e0e0e0">Millor perfil:</strong> ${bestProf.model} (${PROF_LABEL[bestProf.profile]})
+        </div>
+    </div>`;
+
+    content.innerHTML = tableHtml + summary;
+}
+
+// ==================== SEARCH ====================
+async function doSearch() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (!q) return;
+    const region = document.getElementById('searchRegion').value;
+
+    const piano = findModel(q);
+    renderFitxa(piano);
+    await renderCerca(q, region);
+
+    document.getElementById('sec1').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function qs(model) {
+    document.getElementById('searchInput').value = model;
+    doSearch();
+}
+
+document.getElementById('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// ==================== CATALOG ====================
+let catSort = { key: 'model', asc: true };
+function sortCat(key) {
+    if (catSort.key === key) catSort.asc = !catSort.asc;
+    else { catSort.key = key; catSort.asc = true; }
+    renderCatalog();
+}
+
+function renderCatalog() {
+    const filter = (document.getElementById('catFilter').value || '').toLowerCase();
+    const typeF = document.getElementById('catType').value;
+    const profF = document.getElementById('catProfile').value;
+
+    let items = CATALOG.filter(p => {
+        if (typeF && p.type !== typeF) return false;
+        if (profF && p.profile !== profF) return false;
+        if (filter && !(p.model + ' ' + p.series + ' ' + p.profile + ' ' + p.desc).toLowerCase().includes(filter)) return false;
+        return true;
+    });
+
+    items.sort((a, b) => {
+        let va, vb;
+        switch(catSort.key) {
+            case 'model': va=a.model; vb=b.model; break;
+            case 'type': va=a.type; vb=b.type; break;
+            case 'years': va=a.y1; vb=b.y1; break;
+            case 'dims': va=a.type==='Gran Cola'?a.d:a.h; vb=b.type==='Gran Cola'?b.d:b.h; break;
+            case 'weight': va=a.wt; vb=b.wt; break;
+            case 'profile': va=PROF_ORDER[a.profile]; vb=PROF_ORDER[b.profile]; break;
+            default: va=a.model; vb=b.model;
+        }
+        if (typeof va === 'string') return catSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        return catSort.asc ? va-vb : vb-va;
+    });
+
+    document.getElementById('catCount').textContent = items.length + ' de ' + CATALOG.length + ' models';
+
+    document.getElementById('catBody').innerHTML = items.map(p => {
+        const dim = p.type === 'Gran Cola'
+            ? p.d + ' x ' + p.w + ' x ' + p.h + ' cm'
+            : p.h + ' x ' + p.w + ' x ' + p.d + ' cm';
+        return `<tr>
+            <td class="tm">Yamaha ${p.model}</td>
+            <td>${p.type}</td>
+            <td>${p.y1}-${p.y2||'avui'}</td>
+            <td style="white-space:nowrap;font-size:0.9em;color:rgba(255,255,255,0.5)">${dim}</td>
+            <td>${p.wt} kg</td>
+            <td><span class="profile-badge ${PROF_CLASS[p.profile]}" style="font-size:0.72em">${PROF_LABEL[p.profile]}</span></td>
+            <td>
+                <button class="cat-btn" onclick="qs('Yamaha ${p.model}')" style="margin-right:4px">&#128269; Cercar</button>
+                <button class="cat-btn" onclick="addBenchModel('${p.model}')">+ Bench</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+// INIT
+renderCatalog();
+renderBench();
+</script>
+
+</body>
+</html>

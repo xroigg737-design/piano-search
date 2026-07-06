@@ -60,6 +60,21 @@ function extractYear(string $text, string $title = ''): string {
     return '';
 }
 
+function extractYearFromPage(string $html, string $title): string {
+    $text = strip_tags($html);
+    $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+    $serial = extractSerial($text);
+    if ($serial) {
+        $year = serialToYear($serial, $title);
+        if ($year) return $year;
+    }
+    // Look for year near piano-related keywords only
+    if (preg_match('/(?:año|fabricaci|built|baujahr|bouwjaar)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
 function extractSerial(string $text): ?string {
     // "Serial: 1234567", "Nº serie: 1234567", "S/N: 1234567", "serienummer X1234567"
     if (preg_match('/(?:serial|serienummer|serie|s\/n|n[ºo°]\s*(?:de\s+)?serie)[:\s]*[a-z]?(\d{5,7})/i', $text, $m)) {
@@ -309,11 +324,13 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title) {
+                        $year = extractYear($title . ' ' . $desc, $title);
+                        if (!$year) $year = extractYearFromPage($pBody, $title);
                         $results[] = [
                             'store'    => 'La Casa dels Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title . ' ' . $desc, $title),
+                            'year'     => $year,
                             'price'    => $price ?: '-',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -353,15 +370,23 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
+                        $year = extractYear($title, $title);
+                        $desc = 'segunda mano';
+                        if (!$year) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) {
+                                $year = extractYearFromPage($pBody, $title);
+                            }
+                        }
                         $results[] = [
                             'store'    => 'Art Guinardo',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $year,
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
-                            'desc'     => 'segunda mano',
+                            'desc'     => $desc ?: 'segunda mano',
                         ];
                     }
                 }
@@ -392,11 +417,16 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
+                        $year = extractYear($title, $title);
+                        if (!$year) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) $year = extractYearFromPage($pBody, $title);
+                        }
                         $results[] = [
                             'store'    => 'Audenis',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $year,
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -438,11 +468,16 @@ if (in_array($region, ['espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
+                        $year = extractYear($title, $title);
+                        if (!$year) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) $year = extractYearFromPage($pBody, $title);
+                        }
                         $results[] = [
                             'store'    => 'Pianos Low Cost',
                             'location' => 'Madrid, Espanya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $year,
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,

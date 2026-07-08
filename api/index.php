@@ -237,7 +237,9 @@ function classifyCondition(string $title, string $link, string $store, string $d
                     'Bol Pianos','Instrumentum','EML Pianos','Hanlet','Pianos Schaeffer','Piano Fischer',
                     'Markson Pianos','Sherwood Phoenix','Nebout & Hamm','Marangi','Pianissimo','Casa Hazen',
                     "Piano's Maene",'Grand Gallery','Piano Plaza','Japan Piano Service',
-                    'Hinves Pianos','Musical Princesa','Royal Pianos','Piano Importa'];
+                    'Hinves Pianos','Musical Princesa','Royal Pianos','Piano Importa',
+                    'Rincon Musical','Musicasa','Polimusica','Musical Leones',
+                    'Klavierhaus Langer','Piano.art','Anamorphose','2dehands.be'];
     if (in_array($store, $usedStores)) return '2a_ma';
     return 'desconegut';
 }
@@ -1482,7 +1484,280 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 30) PIANO'S MAENE (Belgica) - Magento catalog
+// 30) RINCON MUSICAL (Madrid) - WooCommerce
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['espanya', 'europa'])) {
+    try {
+        $body = fetch('https://www.rinconmusical.es/categoria-producto/pianos-y-teclados/pianos-acusticos/pianos-de-segunda-mano/');
+        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+            foreach (array_slice($items[1], 0, 20) as $item) {
+                $title = ''; $price = ''; $link = ''; $img = '';
+                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
+                    $link = $m[1];
+                }
+                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                    $title = clean($m[1]);
+                }
+                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
+                    $price = trim($m[1]) . ' EUR';
+                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
+                    $price = trim($m[1]) . ' EUR';
+                }
+                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
+                    $img = $m[1];
+                }
+                if ($title && $link) {
+                    $results[] = [
+                        'store' => 'Rincon Musical', 'location' => 'Madrid, Espanya',
+                        'title' => clean($title), 'year' => extractYear($title, $title),
+                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                        'desc' => 'segunda mano',
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 31) MUSICASA TIENDAS (Palma/Ibiza/Menorca) - PrestaShop
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['espanya', 'europa'])) {
+    try {
+        $body = fetch('https://www.musicasatiendas.com/705-pianos-de-ocasion-y-usados');
+        if ($body) {
+            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
+                foreach ($items[1] as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
+                        $link = $m[1]; $title = clean($m[2]);
+                    }
+                    $price = extractPrestashopPrice($item);
+                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+                    if ($title && $link) {
+                        $results[] = [
+                            'store' => 'Musicasa', 'location' => 'Palma, Espanya',
+                            'title' => clean($title), 'year' => extractYear($title, $title),
+                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                            'desc' => 'ocasion usado segunda mano',
+                        ];
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 32) POLIMUSICA (Madrid) - WooCommerce
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['espanya', 'europa'])) {
+    try {
+        $body = fetch('https://polimusica.es/categoria-producto/yamaha/pianos-de-ocasion/');
+        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+            foreach ($items[1] as $item) {
+                $title = ''; $price = ''; $link = ''; $img = '';
+                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
+                    $link = $m[1];
+                }
+                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                    $title = clean($m[1]);
+                }
+                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
+                    $price = trim($m[1]) . ' EUR';
+                }
+                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
+                    $img = $m[1];
+                }
+                if ($title && $link) {
+                    $results[] = [
+                        'store' => 'Polimusica', 'location' => 'Madrid, Espanya',
+                        'title' => clean($title), 'year' => extractYear($title, $title),
+                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                        'desc' => 'ocasion segunda mano',
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 33) MUSICAL LEONES (Granada) - WooCommerce
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['espanya', 'europa'])) {
+    try {
+        $body = fetch('https://musicalleones.com/index.php/categoria-producto/pianos-restaurados/');
+        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+            foreach ($items[1] as $item) {
+                $title = ''; $price = ''; $link = ''; $img = '';
+                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
+                    $link = $m[1];
+                }
+                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                    $title = clean($m[1]);
+                }
+                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
+                    $price = trim($m[1]) . ' EUR';
+                }
+                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
+                    $img = $m[1];
+                }
+                if ($title && $link) {
+                    $results[] = [
+                        'store' => 'Musical Leones', 'location' => 'Granada, Espanya',
+                        'title' => clean($title), 'year' => extractYear($title, $title),
+                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                        'desc' => 'restaurado segunda mano',
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 34) KLAVIERHAUS LANGER (Austria) - Shopify JSON
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        $body = fetch('https://klavierhaus-langer.at/collections/all/products.json?limit=250');
+        if ($body) {
+            $json = json_decode($body, true);
+            foreach (($json['products'] ?? []) as $p) {
+                $title = $p['title'] ?? '';
+                $price = '';
+                if (!empty($p['variants'][0]['price'])) {
+                    $val = (float)$p['variants'][0]['price'];
+                    $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
+                }
+                $img = $p['images'][0]['src'] ?? '';
+                $handle = $p['handle'] ?? '';
+                $link = $handle ? "https://klavierhaus-langer.at/products/{$handle}" : '';
+                $desc = mb_substr(strip_tags($p['body_html'] ?? ''), 0, 150);
+                if ($title && $link) {
+                    $results[] = [
+                        'store' => 'Klavierhaus Langer', 'location' => 'Austria',
+                        'title' => clean($title), 'year' => extractYear($title . ' ' . $desc, $title),
+                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                        'desc' => 'gebraucht segunda mano ' . clean($desc),
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 35) PIANO.ART (Innsbruck, Austria) - WooCommerce
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        $body = fetch('https://piano.art/product-category/gebrauchte-klaviere/');
+        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+            foreach ($items[1] as $item) {
+                $title = ''; $price = ''; $link = ''; $img = '';
+                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
+                    $link = $m[1];
+                }
+                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                    $title = clean($m[1]);
+                }
+                if (preg_match('/woocommerce-Price-amount[^>]*>([\d\s.,]+)/si', $item, $m)) {
+                    $price = str_replace([' ', "\xc2\xa0"], '', trim($m[1])) . ' EUR';
+                }
+                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
+                    $img = $m[1];
+                }
+                if ($title && $link) {
+                    $results[] = [
+                        'store' => 'Piano.art', 'location' => 'Innsbruck, Austria',
+                        'title' => clean($title), 'year' => extractYear($title, $title),
+                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                        'desc' => 'gebraucht segunda mano',
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 36) ANAMORPHOSE (Nantes, Franca) - PrestaShop
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        $body = fetch('https://www.anamorphose-pianos.fr/12-pianos-occasion');
+        if ($body) {
+            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
+                foreach ($items[1] as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
+                        $link = $m[1]; $title = clean($m[2]);
+                    }
+                    $price = extractPrestashopPrice($item);
+                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+                    if ($title && $link) {
+                        $results[] = [
+                            'store' => 'Anamorphose', 'location' => 'Nantes, Franca',
+                            'title' => clean($title), 'year' => extractYear($title, $title),
+                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
+                            'desc' => 'occasion segunda mano',
+                        ];
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 37) 2DEHANDS.BE (Belgica) - Similar a Marktplaats
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        $q = urlencode($searchModel . ' piano');
+        $body = fetch("https://www.2dehands.be/q/{$q}/");
+
+        if ($body && preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
+            $json = json_decode($m[1], true);
+            $listings = $json['props']['pageProps']['searchRequestAndResponse']['listings'] ?? [];
+
+            foreach (array_slice($listings, 0, 12) as $l) {
+                $title = $l['title'] ?? '';
+                $priceCents = $l['priceInfo']['priceCents'] ?? 0;
+                $priceType  = $l['priceInfo']['priceType'] ?? '';
+                $city       = $l['location']['cityName'] ?? '';
+                $slug       = $l['itemId'] ?? '';
+                $img        = $l['imageUrls'][0] ?? '';
+                $desc       = $l['description'] ?? '';
+
+                $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
+                $linkUrl  = $slug ? "https://www.2dehands.be/v/detail/{$slug}" : '';
+
+                if ($title && $linkUrl) {
+                    $results[] = [
+                        'store'    => '2dehands.be',
+                        'location' => ($city ?: 'Belgica') . ', Belgica',
+                        'title'    => clean($title),
+                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'price'    => $priceStr,
+                        'link'     => $linkUrl,
+                        'image'    => $img,
+                        'desc'     => clean(mb_substr($desc, 0, 150)),
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 38) PIANO'S MAENE (Belgica) - Magento
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {

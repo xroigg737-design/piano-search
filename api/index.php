@@ -707,37 +707,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 9) PIRINEUS MUSICAL (Reus, Tarragona) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
-    try {
-        $body = fetch('https://pirineusmusical.com/categoria-producto/ocasio/');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Pirineus Musical', 'location' => 'Reus, Catalunya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'ocasio segona ma',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 10) KLEINANZEIGEN.DE (Alemanya) - JSON-LD
+// 9) KLEINANZEIGEN.DE (Alemanya) - JSON-LD
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -784,7 +754,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 11) MARKTPLAATS.NL (Holanda) - __NEXT_DATA__
+// 10) MARKTPLAATS.NL (Holanda) - __NEXT_DATA__
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -825,7 +795,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 12) EBAY (.es i .de)
+// 11) EBAY (.es i .de)
 // ══════════════════════════════════════════════════════════════
 $ebayDomains = [];
 if (in_array($region, ['espanya', 'catalunya'])) $ebayDomains[] = 'www.ebay.es';
@@ -863,7 +833,7 @@ foreach ($ebayDomains as $ebayDomain) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 13) WALLAPOP (Espanya) - API JSON
+// 12) WALLAPOP (Espanya) - API JSON
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'catalunya'])) {
     try {
@@ -918,7 +888,7 @@ if (in_array($region, ['espanya', 'catalunya'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 14) LEBONCOIN (França) - __NEXT_DATA__
+// 13) LEBONCOIN (França) - __NEXT_DATA__
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -949,7 +919,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 15) BOL PIANOS (Holanda/Belgica) - Shopify JSON
+// 14) BOL PIANOS (Holanda/Belgica) - Shopify JSON
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -981,7 +951,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 16) INSTRUMENTUM.CH (Suissa) - Shopify JSON
+// 15) INSTRUMENTUM.CH (Suissa) - Shopify JSON
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1013,7 +983,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 17) EML PIANOS LYON (Franca) - PrestaShop
+// 16) EML PIANOS LYON (Franca) - PrestaShop
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1044,7 +1014,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 18) HANLET (Brusselles, Belgica) - PrestaShop
+// 17) HANLET (Brusselles, Belgica) - PrestaShop
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1075,7 +1045,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 19) PIANOS SCHAEFFER (Franca/Luxemburg) - PrestaShop
+// 18) PIANOS SCHAEFFER (Franca/Luxemburg) - PrestaShop
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1111,7 +1081,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 20) PIANO FISCHER (Alemanya) - WooCommerce
+// 19) PIANO FISCHER (Alemanya) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1154,7 +1124,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 21) MARKSON PIANOS (Londres, UK) - WooCommerce
+// 20) MARKSON PIANOS (Londres, UK) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1190,7 +1160,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 22) SHERWOOD PHOENIX (UK) - WooCommerce
+// 21) SHERWOOD PHOENIX (UK) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1226,7 +1196,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 23) NEBOUT & HAMM (Paris, Franca) - WooCommerce
+// 22) NEBOUT & HAMM (Paris, Franca) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1262,7 +1232,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 24) MARANGI (Italia) - WooCommerce
+// 23) MARANGI (Italia) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
@@ -1298,7 +1268,7 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 25) PIANISSIMO (Madrid) - WooCommerce search
+// 24) PIANISSIMO (Madrid) - WooCommerce search
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
@@ -1335,7 +1305,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 26) CASA HAZEN (Madrid) - WooCommerce search
+// 25) CASA HAZEN (Madrid) - WooCommerce search
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
@@ -1372,7 +1342,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 27) HINVES PIANOS (Madrid/Granada/Getxo) - WooCommerce
+// 26) HINVES PIANOS (Madrid/Granada/Getxo) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
@@ -1408,7 +1378,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 28) MUSICAL PRINCESA (Madrid) - PrestaShop
+// 27) MUSICAL PRINCESA (Madrid) - PrestaShop
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
@@ -1444,7 +1414,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 29) ROYAL PIANOS (Malaga/Sevilla/Oviedo) - WooCommerce
+// 28) ROYAL PIANOS (Malaga/Sevilla/Oviedo) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
@@ -1480,7 +1450,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 30) PIANO IMPORTA (Valencia) - WooCommerce
+// 29) PIANO IMPORTA (Valencia) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
@@ -1516,7 +1486,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 31) PIRINEUS MUSICAL (Reus, Tarragona) - WooCommerce
+// 30) PIRINEUS MUSICAL (Reus, Tarragona) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
@@ -1551,7 +1521,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 32) RINCON MUSICAL (Madrid) - WooCommerce
+// 31) RINCON MUSICAL (Madrid) - WooCommerce
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {

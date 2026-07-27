@@ -765,7 +765,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.4</p>
+    <p class="footer-version">v4.5</p>
 </footer>
 
 <script>
@@ -1097,6 +1097,7 @@ async function renderCerca(model, region) {
         <div class="cerca-loading">
             <div class="cerca-spinner"></div>
             <div>Cercant pianos de 2a ma a botigues especialitzades i marketplaces...</div>
+            ${(region === 'europa') ? '<div style="margin-top:8px;font-size:0.85em;color:rgba(255,255,255,0.3)">Europa rasca 50+ botigues, pot trigar fins a 1 minut la primera vegada (despres queda cachejat)</div>' : ''}
         </div>`;
 
     // Fetch real results from API

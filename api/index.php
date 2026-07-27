@@ -44,7 +44,7 @@ if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 3600) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────
-function fetch(string $url, int $timeout = 15): ?string {
+function fetch(string $url, int $timeout = 6): ?string {
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $url,
@@ -687,7 +687,7 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
             'https://jorquerapianos.com/comprar-piano-de-reestreno/pianos-de-cola-de-segunda-mano/',
         ];
         foreach ($jqPages as $jqUrl) {
-            $body = fetch($jqUrl, 20);
+            $body = fetch($jqUrl, 8);
             if (!$body) continue;
 
             $text = strip_tags($body);
@@ -1855,7 +1855,7 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
 // ══════════════════════════════════════════════════════════════
 if (!empty(array_intersect($activeRegions, ['japo']))) {
     try {
-        $body = fetch('https://export.grandg.com/en/yamaha-piano/', 20);
+        $body = fetch('https://export.grandg.com/en/yamaha-piano/', 8);
         if ($body) {
             if (preg_match_all('/<tr[^>]*>(.*?)<\/tr>/si', $body, $rows)) {
                 foreach (array_slice($rows[1], 0, 50) as $row) {
@@ -1898,7 +1898,7 @@ if (!empty(array_intersect($activeRegions, ['japo']))) {
 if (!empty(array_intersect($activeRegions, ['japo']))) {
     try {
         $q = urlencode($model);
-        $body = fetch("https://www.pianoplaza.com/search?q={$q}", 15);
+        $body = fetch("https://www.pianoplaza.com/search?q={$q}", 8);
         if ($body && preg_match_all('/<div[^>]*class="[^"]*product-card[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/si', $body, $items)) {
             foreach (array_slice($items[1], 0, 12) as $item) {
                 $title = ''; $price = ''; $link = ''; $img = '';
@@ -1935,7 +1935,7 @@ if (!empty(array_intersect($activeRegions, ['japo']))) {
 // ══════════════════════════════════════════════════════════════
 if (!empty(array_intersect($activeRegions, ['japo']))) {
     try {
-        $body = fetch('https://www.japanpianoservice.com/stock/', 20);
+        $body = fetch('https://www.japanpianoservice.com/stock/', 8);
         if ($body) {
             if (preg_match_all('/<(?:tr|div|li)[^>]*>([^<]*yamaha[^<]*(?:<[^>]+>[^<]*)*)<\/(?:tr|div|li)>/si', $body, $rows)) {
                 $jpseen = [];

@@ -765,7 +765,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.2</p>
+    <p class="footer-version">v4.3</p>
 </footer>
 
 <script>
@@ -1103,9 +1103,9 @@ async function renderCerca(model, region) {
     let apiResults = [];
     let sources = [];
     try {
-        const url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
+        const url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}&_t=${Date.now()}`;
         const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
-        const res = await fetch(url, isLocal ? {} : { credentials: 'same-origin' });
+        const res = await fetch(url, { cache: 'no-store', credentials: isLocal ? 'omit' : 'same-origin' });
         const data = await res.json();
         apiResults = data.results || [];
         sources = data.sources || [];

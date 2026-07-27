@@ -5,6 +5,20 @@ header('Access-Control-Allow-Origin: *');
 $model  = trim($_GET['model'] ?? '');
 $region = trim($_GET['region'] ?? 'espanya');
 
+// Jerarquia geografica: catalunya ⊂ espanya ⊂ europa
+// Expandim la regio seleccionada per incloure les sub-regions
+$activeRegions = match($region) {
+    'europa'    => ['europa', 'espanya', 'catalunya'],
+    'espanya'   => ['espanya', 'catalunya'],
+    'catalunya' => ['catalunya'],
+    'japo'      => ['japo'],
+    default     => [$region],
+};
+function regionActive(string $r): bool {
+    global $activeRegions;
+    return in_array($r, $activeRegions);
+}
+
 if ($model === '') {
     die(json_encode(['error' => 'Cal especificar un model', 'results' => []]));
 }
@@ -280,7 +294,7 @@ $results = [];
 // ══════════════════════════════════════════════════════════════
 // 1) LA CASA DELS PIANOS (Barcelona) - WordPress search
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $q = urlencode($searchModel);
         $body = fetch("https://lacasadelspianos.com/es/?s={$q}");
@@ -354,7 +368,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 2) ART GUINARDO (Barcelona) - Crawl 2a mà category pages
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $agCategories = [
             'https://www.artguinardo.com/112-pianos-yamaha-verticales-segunda-mano',
@@ -406,7 +420,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 3) AUDENIS (Barcelona) - Crawl ocasió category
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $body = fetch("https://audenisbcn.com/es/317-piano-ocasion");
 
@@ -450,7 +464,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 4) PIANOS LOW COST (Madrid) - Crawl renovados/ocasion categories
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $plcCategories = [
             'https://www.pianoslowcost.es/buscar?controller=search&s=' . urlencode($searchModel),
@@ -502,7 +516,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 5) CORRALES PIANOS (Barcelona) - Crawl category pages
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $categories = [
             'https://www.corralespianos.com/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -558,7 +572,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 6) PIANOS CAN PUIG (Mataró) - Shopify JSON API
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $cpCollections = [
             'https://pianoscanpuig.com/collections/pianos-de-ocasion/products.json',
@@ -572,7 +586,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
             foreach ($products as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price'])) {
+                if (!empty($p['variants'][0]['price']))) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
                 }
@@ -601,7 +615,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 7) SINERGIA MUSIC (Mataró) - PrestaShop category crawl
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $body = fetch("https://sinergiamusic.es/392-piano-segunda-mano");
 
@@ -663,7 +677,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 8) JORQUERA PIANOS (Barcelona) - WordPress text parsing
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $jqPages = [
             'https://jorquerapianos.com/comprar-piano-de-reestreno/pianos-verticales-de-segunda-mano/',
@@ -711,7 +725,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 9) KLEINANZEIGEN.DE (Alemanya) - JSON-LD
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.kleinanzeigen.de/s-musikinstrumente/{$q}/k0c74");
@@ -758,7 +772,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 10) MARKTPLAATS.NL (Holanda) - __NEXT_DATA__
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.marktplaats.nl/q/{$q}/");
@@ -800,8 +814,9 @@ if (in_array($region, ['europa'])) {
 // 11) EBAY (.es i .de)
 // ══════════════════════════════════════════════════════════════
 $ebayDomains = [];
-if (in_array($region, ['espanya', 'catalunya'])) $ebayDomains[] = 'www.ebay.es';
-if ($region === 'europa') { $ebayDomains[] = 'www.ebay.es'; $ebayDomains[] = 'www.ebay.de'; }
+if (!empty(array_intersect($activeRegions, ['espanya', 'catalunya']))) $ebayDomains[] = 'www.ebay.es';
+if (regionActive('europa')) $ebayDomains[] = 'www.ebay.de';
+$ebayDomains = array_unique($ebayDomains);
 
 foreach ($ebayDomains as $ebayDomain) {
     try {
@@ -837,7 +852,7 @@ foreach ($ebayDomains as $ebayDomain) {
 // ══════════════════════════════════════════════════════════════
 // 12) WALLAPOP (Espanya) - API JSON
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'catalunya'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'catalunya']))) {
     try {
         $q = urlencode($searchModel . ' piano');
         $lat = $region === 'catalunya' ? '41.3851' : '40.4168';
@@ -892,7 +907,7 @@ if (in_array($region, ['espanya', 'catalunya'])) {
 // ══════════════════════════════════════════════════════════════
 // 13) LEBONCOIN (França) - __NEXT_DATA__
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.leboncoin.fr/recherche?text={$q}&category=26");
@@ -923,7 +938,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 14) BOL PIANOS (Holanda/Belgica) - Shopify JSON
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://bolpianos.com/en/collections/tweedehands-pianos/products.json?limit=250');
         if ($body) {
@@ -931,7 +946,7 @@ if (in_array($region, ['europa'])) {
             foreach (($json['products'] ?? []) as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price'])) {
+                if (!empty($p['variants'][0]['price']))) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
                 }
@@ -955,7 +970,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 15) INSTRUMENTUM.CH (Suissa) - Shopify JSON
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.instrumentum.ch/collections/gebrauchtes-klavier-kaufen-occasion-klaviere/products.json?limit=250');
         if ($body) {
@@ -963,7 +978,7 @@ if (in_array($region, ['europa'])) {
             foreach (($json['products'] ?? []) as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price'])) {
+                if (!empty($p['variants'][0]['price']))) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' CHF' : '-';
                 }
@@ -987,7 +1002,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 16) EML PIANOS LYON (Franca) - PrestaShop
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch("https://www.pianos-lyon.com/6-pianos-occasion");
         if ($body) {
@@ -1018,7 +1033,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 17) HANLET (Brusselles, Belgica) - PrestaShop
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch("https://hanlet.be/en/14-second-hand");
         if ($body) {
@@ -1049,7 +1064,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 18) PIANOS SCHAEFFER (Franca/Luxemburg) - PrestaShop
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $psPages = [
             'https://pianos-schaeffer.com/en/667-used-upright-pianos',
@@ -1085,7 +1100,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 19) PIANO FISCHER (Alemanya) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $pfPages = [
             'https://www.piano-fischer.de/kategorie/gebrauchte/klavier/',
@@ -1128,7 +1143,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 20) MARKSON PIANOS (Londres, UK) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://marksonpianos.com/product-category/pre-owned-pianos/?per_page=96');
         if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
@@ -1164,7 +1179,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 21) SHERWOOD PHOENIX (UK) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://sherwoodphoenix.co.uk/product-category/pianos/all-used-pianos/');
         if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
@@ -1200,7 +1215,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 22) NEBOUT & HAMM (Paris, Franca) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://nebout-hamm.com/type-de-produit/acoustique-occasion/');
         if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
@@ -1236,7 +1251,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 23) MARANGI (Italia) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.marangi.it/categorie/pianoforti-usati/');
         if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
@@ -1272,7 +1287,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 24) PIANISSIMO (Madrid) - WooCommerce search
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $q = urlencode($searchModel);
         $body = fetch("https://www.pianisimo.es/?s={$q}&post_type=product");
@@ -1309,7 +1324,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 25) CASA HAZEN (Madrid) - WooCommerce search
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $q = urlencode($searchModel);
         $body = fetch("https://www.casahazen.com/?s={$q}&post_type=product");
@@ -1346,7 +1361,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 26) HINVES PIANOS (Madrid/Granada/Getxo) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $hinvesUrls = [
             'https://hinves.com/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -1381,7 +1396,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 27) MUSICAL PRINCESA (Madrid) - PrestaShop
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $mpPages = [
             'https://www.musicalprinces.es/buscar?controller=search&s=' . urlencode($searchModel),
@@ -1418,7 +1433,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 28) ROYAL PIANOS (Malaga/Sevilla/Oviedo) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $rpUrls = [
             'https://royalpianos.com/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -1454,7 +1469,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 29) PIANO IMPORTA (Valencia) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $piUrls = [
             'https://pianoimporta.com/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -1489,7 +1504,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 30) PIRINEUS MUSICAL (Reus, Tarragona) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
     try {
         $pmUrls = [
             'https://www.pirineusmusical.com/categoria-producto/ocasio/',
@@ -1524,7 +1539,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 31) RINCON MUSICAL (Madrid) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $rmUrls = [
             'https://www.rinconmusical.es/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -1559,7 +1574,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 32) MUSICASA TIENDAS (Palma/Ibiza/Menorca) - PrestaShop
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $mcUrls = [
             'https://www.musicasatiendas.com/buscar?controller=search&s=' . urlencode($searchModel),
@@ -1595,7 +1610,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 33) POLIMUSICA (Madrid) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $pmUrls = [
             'https://polimusica.es/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -1628,7 +1643,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 34) MUSICAL LEONES (Granada) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $mlUrls = [
             'https://musicalleones.com/index.php/?s=' . urlencode($searchModel) . '&post_type=product',
@@ -1661,7 +1676,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 35) KLAVIERHAUS LANGER (Austria) - Shopify JSON
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://klavierhaus-langer.at/collections/all/products.json?limit=250');
         if ($body) {
@@ -1669,7 +1684,7 @@ if (in_array($region, ['europa'])) {
             foreach (($json['products'] ?? []) as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price'])) {
+                if (!empty($p['variants'][0]['price']))) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
                 }
@@ -1693,7 +1708,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 36) PIANO.ART (Innsbruck, Austria) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://piano.art/product-category/gebrauchte-klaviere/');
         if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
@@ -1727,7 +1742,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 37) ANAMORPHOSE (Nantes, Franca) - PrestaShop
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.anamorphose-pianos.fr/12-pianos-occasion');
         if ($body) {
@@ -1758,7 +1773,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 38) 2DEHANDS.BE (Belgica) - Similar a Marktplaats
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.2dehands.be/q/{$q}/");
@@ -1799,7 +1814,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 39) PIANO'S MAENE (Belgica) - Magento
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.maene.be/en_BE/all-pianos/second-hand-pianos?product_list_limit=96');
         if ($body) {
@@ -1835,7 +1850,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 40) GRAND GALLERY (Japo) - Export catalog
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['japo'])) {
+if (!empty(array_intersect($activeRegions, ['japo']))) {
     try {
         $body = fetch('https://export.grandg.com/en/yamaha-piano/', 20);
         if ($body) {
@@ -1877,7 +1892,7 @@ if (in_array($region, ['japo'])) {
 // ══════════════════════════════════════════════════════════════
 // 41) PIANO PLAZA (Tokyo, Japo)
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['japo'])) {
+if (!empty(array_intersect($activeRegions, ['japo']))) {
     try {
         $q = urlencode($model);
         $body = fetch("https://www.pianoplaza.com/search?q={$q}", 15);
@@ -1915,7 +1930,7 @@ if (in_array($region, ['japo'])) {
 // ══════════════════════════════════════════════════════════════
 // 42) JAPAN PIANO SERVICE
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['japo'])) {
+if (!empty(array_intersect($activeRegions, ['japo']))) {
     try {
         $body = fetch('https://www.japanpianoservice.com/stock/', 20);
         if ($body) {
@@ -1950,7 +1965,7 @@ if (in_array($region, ['japo'])) {
 // ══════════════════════════════════════════════════════════════
 // 43) PIANO CHOLLO (Ontinyent, Valencia) - Custom PHP
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $pcUrls = [
             'https://www.pianochollo.com/pianos-verticales/pianos-renovados',
@@ -1983,7 +1998,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 44) KLAVIER (Murcia/Alicante) - Odoo
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'europa'])) {
+if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
     try {
         $body = fetch('https://www.klavier.es/shop/category/pianos-segunda-mano-455');
         if ($body) {
@@ -2015,7 +2030,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 45) KLAVIER KREISEL (Germany) - Magento
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.klavier-kreisel.de/klavier/gebraucht.html?product_list_limit=96');
         if ($body && preg_match_all('/<li[^>]*class="[^"]*product-item[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
@@ -2046,7 +2061,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 46) KLAVIERHALLE (Altenberge, Germany) - Custom/Static
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         for ($pg = 1; $pg <= 3; $pg++) {
             $pgStr = str_pad($pg, 3, '0', STR_PAD_LEFT);
@@ -2078,7 +2093,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 47) BESBRODE PIANOS (Leeds, UK) - Custom/Static
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.besbrodepianos.co.uk/listing.htm');
         if ($body) {
@@ -2108,7 +2123,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 48) PIANOZ (Maidenhead, UK) - Drupal
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://pianoz.com/pianos-for-sale');
         if ($body) {
@@ -2143,7 +2158,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 49) PIANOSHOP.FR (France) - Custom
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.pianoshop.fr/occasions');
         if ($body) {
@@ -2183,7 +2198,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 50) QUATRE MAINS PIANOS (Ghent, Belgium) - Squarespace
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.quatremainspianos.be/tweedehands-pianos');
         if ($body) {
@@ -2218,7 +2233,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 51) KLAVIERLOFT (Vienna, Austria) - Weebly
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.klavierloft.at/gebrauchte-pianos.html');
         if ($body) {
@@ -2248,7 +2263,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 52) SCORTICATI PIANOFORTI (Milan, Italy) - Weebly
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.scorticatipianoforti.it/pianoforti-usati-milano');
         if ($body) {
@@ -2285,7 +2300,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 53) BONTEMPI PIANOFORTI (Roma, Italy) - Custom
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $body = fetch('https://www.pianofortibontempiroma.com/pianoforti-usato-garantito');
         if ($body) {
@@ -2323,7 +2338,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 // 54) KLAVIANO (Europe-wide aggregator) - Custom
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['europa'])) {
+if (!empty(array_intersect($activeRegions, ['europa']))) {
     try {
         $q = urlencode($searchModel);
         $body = fetch("https://www.klaviano.com/pianos-for-sale/yamaha.html?search={$q}&condition=used");

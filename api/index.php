@@ -586,7 +586,7 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
             foreach ($products as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price']))) {
+                if (!empty($p['variants'][0]['price'])) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
                 }
@@ -946,7 +946,7 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
             foreach (($json['products'] ?? []) as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price']))) {
+                if (!empty($p['variants'][0]['price'])) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
                 }
@@ -978,7 +978,7 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
             foreach (($json['products'] ?? []) as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price']))) {
+                if (!empty($p['variants'][0]['price'])) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' CHF' : '-';
                 }
@@ -1684,7 +1684,7 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
             foreach (($json['products'] ?? []) as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
-                if (!empty($p['variants'][0]['price']))) {
+                if (!empty($p['variants'][0]['price'])) {
                     $val = (float)$p['variants'][0]['price'];
                     $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
                 }

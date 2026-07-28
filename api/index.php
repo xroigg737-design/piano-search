@@ -1,5 +1,5 @@
 <?php
-set_time_limit(120);
+set_time_limit(180);
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 
@@ -413,16 +413,18 @@ function crawlPrestashop(array $categoryUrls, ?string $searchUrl, string $storeN
     $found = [];
     $seenLinks = [];
 
-    $allUrls = $categoryUrls;
-    if ($searchUrl) array_unshift($allUrls, $searchUrl);
+    // Search first (most relevant), then categories
+    $allUrls = [];
+    if ($searchUrl) $allUrls[] = $searchUrl;
+    foreach ($categoryUrls as $cu) $allUrls[] = $cu;
 
     foreach ($allUrls as $baseUrl) {
-        for ($page = 1; $page <= 3; $page++) {
+        for ($page = 1; $page <= 2; $page++) {
             $url = $baseUrl;
             if ($page > 1) {
                 $url .= (strpos($baseUrl, '?') !== false ? '&' : '?') . 'page=' . $page;
             }
-            $body = fetch($url, 15);
+            $body = fetch($url, 12);
             if (!$body) break;
 
             $products = scrapePrestashopProducts($body);
@@ -433,10 +435,6 @@ function crawlPrestashop(array $categoryUrls, ?string $searchUrl, string $storeN
                 $seenLinks[$p['link']] = true;
 
                 $yearInfo = extractYearEx($p['title'], $p['title']);
-                if (!$yearInfo['year']) {
-                    $pBody = fetch($p['link'], 10);
-                    if ($pBody) $yearInfo = extractYearFromPage($pBody, $p['title']);
-                }
                 $found[] = [
                     'store'    => $storeName,
                     'location' => $location,
@@ -469,8 +467,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
             // Find product links in search results
             if (preg_match_all('/href="(https?:\/\/lacasadelspianos\.com\/es\/pianos-item\/[^"]+)"/i', $body, $links)) {
                 $productLinks = array_unique($links[1]);
-                foreach (array_slice($productLinks, 0, 8) as $pLink) {
-                    $pBody = fetch($pLink, 15);
+                foreach (array_slice($productLinks, 0, 6) as $pLink) {
+                    $pBody = fetch($pLink, 10);
                     if (!$pBody) continue;
 
                     $title = ''; $price = ''; $img = '';
@@ -602,7 +600,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
         $searchBody = fetch("https://www.corralespianos.com/?s={$q}", 15);
         if ($searchBody) {
             if (preg_match_all('/href="(https?:\/\/www\.corralespianos\.com\/[^"]*pianos?[^"]*)"/i', $searchBody, $links)) {
-                foreach (array_unique($links[1]) as $pLink) {
+                foreach (array_slice(array_unique($links[1]), 0, 6) as $pLink) {
                     if (isset($cpSeen[$pLink])) continue;
                     $cpSeen[$pLink] = true;
                     $pBody = fetch($pLink, 10);
@@ -650,11 +648,14 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
         $catBody = fetch("https://www.corralespianos.com/pianos-de-ocasion/", 15);
         if ($catBody) {
             if (preg_match_all('/href="(https?:\/\/www\.corralespianos\.com\/[^"]+)"/i', $catBody, $links)) {
+                $catLinks = 0;
                 foreach (array_unique($links[1]) as $pLink) {
+                    if ($catLinks >= 6) break;
                     if (isset($cpSeen[$pLink]) || str_contains($pLink, '#') || str_contains($pLink, 'wp-content')) continue;
                     if (!preg_match('/piano/i', $pLink)) continue;
                     $cpSeen[$pLink] = true;
-                    $pBody = fetch($pLink, 10);
+                    $catLinks++;
+                    $pBody = fetch($pLink, 8);
                     if (!$pBody) continue;
 
                     $title = ''; $price = ''; $img = '';
@@ -759,8 +760,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
         // Fallback: try legacy title-based extraction if Prestashop helper found nothing
         if (empty($found)) {
             $smSeen = [];
-            foreach ([$searchUrl, $categories[0]] as $smUrl) {
-                $body = fetch($smUrl, 15);
+            foreach ([$categories[0]] as $smUrl) {
+                $body = fetch($smUrl, 12);
                 if (!$body) continue;
                 if (preg_match_all('/<a[^>]+href="(https:\/\/sinergiamusic\.es\/[^"]*\.html)"[^>]+title="([^"]+)"/si', $body, $pms, PREG_SET_ORDER)) {
                     foreach ($pms as $pm) {

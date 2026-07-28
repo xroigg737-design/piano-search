@@ -368,7 +368,7 @@ function classifyCondition(string $title, string $link, string $store, string $d
     $mpStores = ['Wallapop','Kleinanzeigen','Marktplaats','eBay','Leboncoin','PianoMart','2dehands.be','2ememain.be','Yahoo Auctions JP','OLX.pl'];
     if (in_array($store, $mpStores)) return '2a_ma';
     // Specialist second-hand stores
-    $usedStores = ['Art Guinardo','Pianos Low Cost','La Casa dels Pianos','Pianos Can Puig','Sinergia Music','Jorquera Pianos','Japan Used Piano'];
+    $usedStores = ['Art Guinardo','Pianos Low Cost','La Casa dels Pianos','Pianos Can Puig','Sinergia Music','Jorquera Pianos','Japan Used Piano','Shimamura'];
     if (in_array($store, $usedStores)) return '2a_ma';
     return 'desconegut';
 }
@@ -1385,6 +1385,133 @@ if (in_array($region, ['japo'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// 11d) MIKI PIANO (Osaka) - Yamaha specialist, all models
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Miki Piano');
+        $mikiFile = '/tmp/miki_piano_' . md5('yamaha') . '.html';
+        $mikiMaxAge = 3600;
+        if (file_exists($mikiFile) && (time() - filemtime($mikiFile)) < $mikiMaxAge) {
+            $mikiBody = file_get_contents($mikiFile);
+        } else {
+            $mikiBody = fetch("https://piano.miki.co.jp/lineup/brand/yamaha/", 20);
+            if ($mikiBody) @file_put_contents($mikiFile, $mikiBody);
+        }
+
+        if ($mikiBody && preg_match_all('/<a\s+href="([^"]+)"\s+class="item">(.*?)<\/a>/si', $mikiBody, $cards, PREG_SET_ORDER)) {
+            foreach ($cards as $card) {
+                $link = $card[1];
+                $html = $card[2];
+                if (str_contains($html, 'contracted')) continue;
+                $isUsed = str_contains($html, '中古');
+
+                $title = '';
+                if (preg_match('/class="name">(.*?)<\/div>/si', $html, $m))
+                    $title = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+                $price = '';
+                if (preg_match('/class="price">(.*?)<\/span>/si', $html, $m))
+                    $price = trim(strip_tags($m[1]));
+                $year = '';
+                $yearConf = '';
+                if (preg_match('/class="era">(.*?)<\/div>/si', $html, $m)) {
+                    $eraText = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+                    if (preg_match('/(\d{4})年/', $eraText, $ym)) {
+                        $year = $ym[1];
+                        $yearConf = 'stated';
+                    }
+                }
+                $img = '';
+                if (preg_match('/<img[^>]+src="([^"]+)"/i', $html, $m)) $img = $m[1];
+                $desc = '';
+                if (preg_match('/class="description">(.*?)<\/div>/si', $html, $m))
+                    $desc = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+
+                if ($title && $price) {
+                    $priceJPY = preg_replace('/[^\d]/', '', $price);
+                    $priceStr = $priceJPY ? number_format((int)$priceJPY) . ' JPY' : '-';
+                    $condition = $isUsed ? '2a_ma' : 'nou';
+                    $results[] = [
+                        'store'    => 'Miki Piano',
+                        'location' => 'Osaka, Japó',
+                        'title'    => clean($title),
+                        'year'     => $year,
+                        'year_confidence' => $yearConf,
+                        'price'    => $priceStr,
+                        'link'     => $link,
+                        'image'    => $img,
+                        'desc'     => clean(mb_substr($desc, 0, 150)),
+                        'condition' => $condition,
+                    ];
+                }
+            }
+        }
+
+        scraperDone('Miki Piano');
+    } catch (\Throwable $e) { scraperFail('Miki Piano');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11e) SHIMAMURA (cadena de botigues de música, Japó)
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Shimamura');
+        $shimaResults = [];
+        $shimaUrls = [
+            'https://store.shimamura.co.jp/ec/Facet?category_0=11150204000',
+            'https://store.shimamura.co.jp/ec/Facet?category_0=11150706000',
+        ];
+        foreach ($shimaUrls as $shimaUrl) {
+            $shimaBody = fetch($shimaUrl, 15);
+            if (!$shimaBody) continue;
+            if (preg_match_all('/<div class="item">(.*?)<!-- \/item -->/si', $shimaBody, $items)) {
+                foreach ($items[1] as $item) {
+                    if (!str_contains($item, 'icon_reuse')) continue;
+                    if (str_contains($item, '在庫切れ')) continue;
+
+                    $title = '';
+                    if (preg_match('/class="item-name"[^>]*><a[^>]*>(.*?)<\/a>/si', $item, $m))
+                        $title = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+                    $price = '';
+                    if (preg_match('/class="item-price[^"]*"[^>]*>(.*?)<\/p>/si', $item, $m)) {
+                        $priceRaw = strip_tags($m[1]);
+                        if (preg_match('/([\d,]+)/', $priceRaw, $pm))
+                            $price = str_replace(',', '', $pm[1]);
+                    }
+                    $img = '';
+                    if (preg_match('/<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"/i', $item, $m)) {
+                        $img = 'https://store.shimamura.co.jp' . $m[1];
+                    }
+                    $link = '';
+                    if (preg_match('/href="(\/ec\/pro\/disp\/1\/[^"]+)"/i', $item, $m))
+                        $link = 'https://store.shimamura.co.jp' . $m[1];
+
+                    if ($title && $link) {
+                        $titleClean = preg_replace('/\s*【[^】]+】\s*$/', '', $title);
+                        $yearInfo = extractYearEx($titleClean, $titleClean);
+                        $priceStr = $price ? number_format((int)$price) . ' JPY' : '-';
+                        $results[] = [
+                            'store'    => 'Shimamura',
+                            'location' => 'Japó',
+                            'title'    => clean($titleClean),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $priceStr,
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+        }
+
+        scraperDone('Shimamura');
+    } catch (\Throwable $e) { scraperFail('Shimamura');}
+}
+
+// ══════════════════════════════════════════════════════════════
 // 12) EBAY (.es, .de, .com)
 // ══════════════════════════════════════════════════════════════
 $ebayDomains = [];
@@ -1603,7 +1730,7 @@ foreach ($results as $r) {
 
 // ── Classificació nou/2a mà ─────────────────────────────────
 foreach ($results as &$r) {
-    $r['condition'] = classifyCondition($r['title'], $r['link'], $r['store'], $r['desc'] ?? '');
+    if (empty($r['condition'])) $r['condition'] = classifyCondition($r['title'], $r['link'], $r['store'], $r['desc'] ?? '');
 }
 unset($r);
 

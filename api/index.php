@@ -1,5 +1,5 @@
 <?php
-set_time_limit(180);
+set_time_limit(300);
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 

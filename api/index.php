@@ -1,10 +1,12 @@
 <?php
+set_time_limit(120);
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 
 $model  = trim($_GET['model'] ?? '');
 $region = trim($_GET['region'] ?? 'espanya');
 $fresh  = !empty($_GET['fresh']);
+$scrapersRun = [];
 
 if ($model === '') {
     die(json_encode(['error' => 'Cal especificar un model', 'results' => []]));
@@ -31,7 +33,24 @@ if (!$fresh && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 360
 }
 
 // ── Helpers ─────────────────────────────────────────────────
-function fetch(string $url, int $timeout = 15): ?string {
+function scraper(string $name): void {
+    global $scrapersRun;
+    $scrapersRun[$name] = ['status' => 'running', 'start' => microtime(true)];
+}
+
+function scraperDone(string $name, int $count = 0): void {
+    global $scrapersRun;
+    $elapsed = isset($scrapersRun[$name]['start']) ? round(microtime(true) - $scrapersRun[$name]['start'], 1) : 0;
+    $scrapersRun[$name] = ['status' => 'ok', 'found' => $count, 'time' => $elapsed];
+}
+
+function scraperFail(string $name): void {
+    global $scrapersRun;
+    $elapsed = isset($scrapersRun[$name]['start']) ? round(microtime(true) - $scrapersRun[$name]['start'], 1) : 0;
+    $scrapersRun[$name] = ['status' => 'error', 'time' => $elapsed];
+}
+
+function fetch(string $url, int $timeout = 10): ?string {
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $url,
@@ -278,6 +297,7 @@ $results = [];
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('La Casa dels Pianos');
         $q = urlencode($searchModel);
         $body = fetch("https://lacasadelspianos.com/es/?s={$q}");
 
@@ -344,7 +364,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('La Casa dels Pianos');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -352,6 +372,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Art Guinardo');
         $agCategories = [
             'https://www.artguinardo.com/112-pianos-yamaha-verticales-segunda-mano',
             'https://www.artguinardo.com/115-pianos-yamaha-de-cola-de-segunda-mano',
@@ -396,7 +417,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Art Guinardo');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -404,6 +425,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Audenis');
         $body = fetch("https://audenisbcn.com/es/317-piano-ocasion");
 
         if ($body) {
@@ -440,7 +462,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Audenis');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -448,6 +470,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
+        scraper('Pianos Low Cost');
         $plcCategories = [
             'https://www.pianoslowcost.es/7-pianos-verticales-renovados',
             'https://www.pianoslowcost.es/11-pianos-cola-renovados',
@@ -491,7 +514,7 @@ if (in_array($region, ['espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Pianos Low Cost');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -499,6 +522,7 @@ if (in_array($region, ['espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Corrales Pianos');
         $categories = [
             'https://www.corralespianos.com/pianos-de-ocasion/',
         ];
@@ -546,7 +570,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Corrales Pianos');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -554,6 +578,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Pianos Can Puig');
         $cpCollections = [
             'https://pianoscanpuig.com/collections/pianos-de-ocasion/products.json',
             'https://pianoscanpuig.com/collections/pianos-de-re-estreno/products.json',
@@ -589,7 +614,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Pianos Can Puig');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -597,6 +622,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Sinergia Music');
         $body = fetch("https://sinergiamusic.es/392-piano-segunda-mano");
 
         if ($body) {
@@ -651,7 +677,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Sinergia Music');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -659,6 +685,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Jorquera Pianos');
         $jqPages = [
             'https://jorquerapianos.com/comprar-piano-de-reestreno/pianos-verticales-de-segunda-mano/',
             'https://jorquerapianos.com/comprar-piano-de-reestreno/pianos-de-cola-de-segunda-mano/',
@@ -699,7 +726,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Jorquera Pianos');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -707,6 +734,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
+        scraper('Kleinanzeigen');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.kleinanzeigen.de/s-musikinstrumente/{$q}/k0c74");
 
@@ -746,7 +774,7 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Kleinanzeigen');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -754,6 +782,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
+        scraper('Marktplaats');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.marktplaats.nl/q/{$q}/");
 
@@ -787,7 +816,7 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Marktplaats');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -795,6 +824,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
+        scraper('2dehands.be');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.2dehands.be/q/{$q}/");
 
@@ -828,7 +858,7 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('2dehands.be');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -836,6 +866,7 @@ if (in_array($region, ['europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
     try {
+        scraper('Piano Importa');
         $q = urlencode($searchModel);
         $body = fetch("https://pianoimporta.com/?s={$q}&post_type=product");
 
@@ -876,7 +907,7 @@ if (in_array($region, ['espanya', 'europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Piano Importa');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -888,6 +919,7 @@ if ($region === 'europa') { $ebayDomains[] = 'www.ebay.es'; $ebayDomains[] = 'ww
 
 foreach ($ebayDomains as $ebayDomain) {
     try {
+        scraper('eBay');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://{$ebayDomain}/sch/i.html?_nkw={$q}&_sacat=180015&LH_BIN=1&_sop=15");
 
@@ -914,7 +946,7 @@ foreach ($ebayDomains as $ebayDomain) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('eBay');}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -930,6 +962,7 @@ if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
         $wpLocations[] = ['39.4699', '-0.3763'];   // València
     }
 
+    scraper('Wallapop');
     foreach ($wpLocations as [$lat, $lon]) {
         try {
             $q = urlencode($searchModel . ' piano');
@@ -985,6 +1018,7 @@ if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['europa'])) {
     try {
+        scraper('Leboncoin');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.leboncoin.fr/recherche?text={$q}&category=26");
 
@@ -1008,7 +1042,7 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) { scraperFail('Leboncoin');}
 }
 
 // ── Classificació nou/2a mà ─────────────────────────────────
@@ -1042,13 +1076,18 @@ $results = array_values(array_filter($results, function($r) use (&$seen) {
 }));
 
 // ── Resposta ────────────────────────────────────────────────
+// Remove internal timing data from scraper status
+foreach ($scrapersRun as &$sr) { unset($sr['start']); }
+unset($sr);
+
 $response = [
-    'model'     => $model,
-    'region'    => $region,
-    'count'     => count($results),
-    'results'   => array_values($results),
-    'sources'   => array_values(array_unique(array_column($results, 'store'))),
-    'cached'    => false,
+    'model'      => $model,
+    'region'     => $region,
+    'count'      => count($results),
+    'results'    => array_values($results),
+    'sources'    => array_values(array_unique(array_column($results, 'store'))),
+    'scrapers'   => $scrapersRun,
+    'cached'     => false,
     'scraped_at' => date('c'),
 ];
 

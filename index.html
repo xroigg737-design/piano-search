@@ -809,7 +809,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v3.7</p>
+    <p class="footer-version">v3.8</p>
 </footer>
 
 <script>
@@ -1110,6 +1110,7 @@ async function renderCerca(model, region, forceFresh = false) {
     let sources = [];
     let isCached = false;
     let scrapedAt = '';
+    let scrapers = {};
     try {
         let url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
         if (forceFresh) url += '&fresh=1';
@@ -1120,6 +1121,7 @@ async function renderCerca(model, region, forceFresh = false) {
         sources = data.sources || [];
         isCached = !!data.cached;
         scrapedAt = data.cached_at || data.scraped_at || '';
+        scrapers = data.scrapers || {};
     } catch (e) {
         console.error('API error:', e);
     }
@@ -1159,6 +1161,17 @@ async function renderCerca(model, region, forceFresh = false) {
     }
     const refreshBtn = `<button class="btn-refresh" onclick="doFreshSearch()" id="btnRefresh">&#8635; Actualitzar resultats</button>`;
 
+    let scrapersHtml = '';
+    if (Object.keys(scrapers).length > 0) {
+        const dots = Object.entries(scrapers).map(([name, info]) => {
+            const color = info.status === 'ok' ? '#66dd88' : info.status === 'error' ? '#ff6666' : '#ffaa00';
+            const icon = info.status === 'ok' ? '&#10003;' : info.status === 'error' ? '&#10007;' : '&#8230;';
+            const time = info.time ? ` (${info.time}s)` : '';
+            return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:0.72em;background:rgba(255,255,255,0.03);color:${color}" title="${name}: ${info.status}${time}">${icon} ${name}</span>`;
+        }).join(' ');
+        scrapersHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">${dots}</div>`;
+    }
+
     body.innerHTML = `
         <div class="search-region-info">Resultats per <strong>"${model}"</strong> a <strong>${regionLabel}</strong></div>
 
@@ -1166,6 +1179,8 @@ async function renderCerca(model, region, forceFresh = false) {
             ${freshnessBadge}
             ${refreshBtn}
         </div>
+
+        ${scrapersHtml}
 
         <div class="cerca-count">
             <strong>${apiResults.length}</strong> ofertes de 2a ma trobades

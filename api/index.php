@@ -34,14 +34,15 @@ if (!$fresh && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 360
 
 // ── Helpers ─────────────────────────────────────────────────
 function scraper(string $name): void {
-    global $scrapersRun;
-    $scrapersRun[$name] = ['status' => 'running', 'start' => microtime(true)];
+    global $scrapersRun, $results;
+    $scrapersRun[$name] = ['status' => 'running', 'start' => microtime(true), 'count_before' => count($results)];
 }
 
-function scraperDone(string $name, int $count = 0): void {
-    global $scrapersRun;
+function scraperDone(string $name): void {
+    global $scrapersRun, $results;
     $elapsed = isset($scrapersRun[$name]['start']) ? round(microtime(true) - $scrapersRun[$name]['start'], 1) : 0;
-    $scrapersRun[$name] = ['status' => 'ok', 'found' => $count, 'time' => $elapsed];
+    $countBefore = $scrapersRun[$name]['count_before'] ?? 0;
+    $scrapersRun[$name] = ['status' => 'ok', 'found' => count($results) - $countBefore, 'time' => $elapsed];
 }
 
 function scraperFail(string $name): void {

@@ -909,7 +909,11 @@ if (in_array($region, ['espanya', 'europa'])) {
                     if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) {
                         $img = $m[1];
                     }
-                    if (preg_match('/amount"[^>]*>([\d.,]+)\s*(?:€|&euro;)/si', $item, $m)) {
+                    if (preg_match('/<bdi>[^<]*&euro;[^<]*<\/span>([\d.,]+)<\/bdi>/si', $item, $m)) {
+                        $price = trim($m[1]) . ' EUR';
+                    } elseif (preg_match('/&euro;\s*<\/span>\s*([\d.,]+)/si', $item, $m)) {
+                        $price = trim($m[1]) . ' EUR';
+                    } elseif (preg_match('/amount"[^>]*>([\d.,]+)\s*(?:€|&euro;)/si', $item, $m)) {
                         $price = trim($m[1]) . ' EUR';
                     }
 

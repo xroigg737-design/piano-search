@@ -106,6 +106,13 @@ function extractYearEx(string $text, string $title = ''): array {
         $estYear = estimateYearFromPrefix($prefix, $title);
         if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
     }
+    // 6) Textual serial range: "superior a X millones", "mayor de X millones", "above X million"
+    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als)\s+(?:a|de|que|than)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
+        $millions = (int) $m[1];
+        $prefix = $millions * 1000;
+        $estYear = estimateYearFromPrefix((string) $prefix, $title);
+        if ($estYear) return ['year' => '>' . $estYear, 'confidence' => 'estimated'];
+    }
     return ['year' => '', 'confidence' => ''];
 }
 
@@ -155,6 +162,13 @@ function extractYearFromPage(string $html, string $title): array {
     if (preg_match('/(?:serial|serie|s\/n|n[ºo°])\s*:?\s*[a-z]?(\d{3,4})/i', $text, $m)) {
         $estYear = estimateYearFromPrefix($m[1], $title);
         if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
+    }
+    // 4) Textual serial range: "superior a X millones", "mayor de X millones"
+    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als)\s+(?:a|de|que|than)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
+        $millions = (int) $m[1];
+        $prefix = $millions * 1000;
+        $estYear = estimateYearFromPrefix((string) $prefix, $title);
+        if ($estYear) return ['year' => '>' . $estYear, 'confidence' => 'estimated'];
     }
     return ['year' => '', 'confidence' => ''];
 }
@@ -1000,6 +1014,10 @@ if (in_array($region, ['espanya', 'europa'])) {
                     if ($title && $link) {
                         $isOcasion = (bool) preg_match('/ocasi[oó]n|segunda\s*mano|2[ªa]\s*m[aà]|used|gebraucht/i', $title . ' ' . $link);
                         $yearInfo = extractYearEx($title, $title);
+                        if (!$yearInfo['year']) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) $yearInfo = extractYearFromPage($pBody, $title);
+                        }
                         $results[] = [
                             'store'    => 'Piano Importa',
                             'location' => 'Valencia, Espanya',

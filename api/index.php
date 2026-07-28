@@ -364,6 +364,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('La Casa dels Pianos');
     } catch (\Throwable $e) { scraperFail('La Casa dels Pianos');}
 }
 
@@ -417,6 +419,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Art Guinardo');
     } catch (\Throwable $e) { scraperFail('Art Guinardo');}
 }
 
@@ -462,6 +466,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Audenis');
     } catch (\Throwable $e) { scraperFail('Audenis');}
 }
 
@@ -514,6 +520,8 @@ if (in_array($region, ['espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Pianos Low Cost');
     } catch (\Throwable $e) { scraperFail('Pianos Low Cost');}
 }
 
@@ -570,6 +578,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Corrales Pianos');
     } catch (\Throwable $e) { scraperFail('Corrales Pianos');}
 }
 
@@ -614,6 +624,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Pianos Can Puig');
     } catch (\Throwable $e) { scraperFail('Pianos Can Puig');}
 }
 
@@ -677,6 +689,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Sinergia Music');
     } catch (\Throwable $e) { scraperFail('Sinergia Music');}
 }
 
@@ -726,6 +740,8 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Jorquera Pianos');
     } catch (\Throwable $e) { scraperFail('Jorquera Pianos');}
 }
 
@@ -774,6 +790,8 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
+    
+        scraperDone('Kleinanzeigen');
     } catch (\Throwable $e) { scraperFail('Kleinanzeigen');}
 }
 
@@ -816,6 +834,8 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
+    
+        scraperDone('Marktplaats');
     } catch (\Throwable $e) { scraperFail('Marktplaats');}
 }
 
@@ -858,6 +878,8 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
+    
+        scraperDone('2dehands.be');
     } catch (\Throwable $e) { scraperFail('2dehands.be');}
 }
 
@@ -907,6 +929,8 @@ if (in_array($region, ['espanya', 'europa'])) {
                 }
             }
         }
+    
+        scraperDone('Piano Importa');
     } catch (\Throwable $e) { scraperFail('Piano Importa');}
 }
 
@@ -946,6 +970,8 @@ foreach ($ebayDomains as $ebayDomain) {
                 }
             }
         }
+    
+        scraperDone('eBay');
     } catch (\Throwable $e) { scraperFail('eBay');}
 }
 
@@ -1011,6 +1037,7 @@ if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
             }
         } catch (\Throwable $e) {}
     }
+    scraperDone('Wallapop');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1042,6 +1069,8 @@ if (in_array($region, ['europa'])) {
                 }
             }
         }
+    
+        scraperDone('Leboncoin');
     } catch (\Throwable $e) { scraperFail('Leboncoin');}
 }
 

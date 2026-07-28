@@ -1830,6 +1830,39 @@ if ($hasUSD) {
     }
 }
 
+// ── Conversió PLN → EUR ────────────────────────────────────
+$hasPLN = false;
+foreach ($results as $r) {
+    if (str_contains($r['price'] ?? '', 'PLN')) { $hasPLN = true; break; }
+}
+if ($hasPLN) {
+    $plnRate = null;
+    $plnRateFile = __DIR__ . '/cache/pln_eur_rate.json';
+    if (file_exists($plnRateFile) && (time() - filemtime($plnRateFile)) < 86400) {
+        $rateData = json_decode(file_get_contents($plnRateFile), true);
+        $plnRate = $rateData['rate'] ?? null;
+    }
+    if (!$plnRate) {
+        $rateBody = fetch("https://open.er-api.com/v6/latest/PLN", 8);
+        if ($rateBody) {
+            $rateJson = json_decode($rateBody, true);
+            $plnRate = $rateJson['rates']['EUR'] ?? null;
+            if ($plnRate) @file_put_contents($plnRateFile, json_encode(['rate' => $plnRate, 'updated' => date('c')]));
+        }
+    }
+    if ($plnRate) {
+        foreach ($results as &$r) {
+            if (str_contains($r['price'] ?? '', 'PLN')) {
+                $plnAmount = (int) preg_replace('/[^\d]/', '', $r['price']);
+                $eurAmount = round($plnAmount * $plnRate);
+                $r['price'] = number_format($eurAmount, 0, ',', '.') . ' EUR';
+                $r['price_original'] = number_format($plnAmount, 0, ' ', '') . ' PLN';
+            }
+        }
+        unset($r);
+    }
+}
+
 // ── Resposta ────────────────────────────────────────────────
 foreach ($scrapersRun as &$sr) { unset($sr['start']); unset($sr['count_before']); }
 unset($sr);

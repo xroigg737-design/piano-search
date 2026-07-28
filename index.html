@@ -287,6 +287,50 @@
         }
         .open-all:hover { background: rgba(100,180,255,0.16); border-color: rgba(100,180,255,0.4); }
 
+        .freshness-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+            font-size: 0.82em;
+        }
+        .freshness-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        .fb-fresh {
+            background: rgba(100,200,100,0.1);
+            color: #88dd88;
+            border: 1px solid rgba(100,200,100,0.2);
+        }
+        .fb-cached {
+            background: rgba(255,170,0,0.08);
+            color: rgba(255,170,0,0.7);
+            border: 1px solid rgba(255,170,0,0.15);
+        }
+        .btn-refresh {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 14px;
+            border-radius: 6px;
+            border: 1px solid rgba(100,180,255,0.25);
+            background: rgba(100,180,255,0.08);
+            color: #8ac4ff;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-refresh:hover { background: rgba(100,180,255,0.18); border-color: rgba(100,180,255,0.4); }
+        .btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-refresh .spin { display: inline-block; animation: spin 0.6s linear infinite; }
+
         .cerca-loading {
             text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4);
         }
@@ -765,7 +809,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v3.4</p>
+    <p class="footer-version">v3.5</p>
 </footer>
 
 <script>
@@ -1048,36 +1092,38 @@ function getApiBase() {
     return isLocal ? 'https://i-xr.duckdns.org/piano-search/api/index.php' : 'api/index.php';
 }
 
-async function renderCerca(model, region) {
+async function renderCerca(model, region, forceFresh = false) {
     const sec = document.getElementById('sec2');
     const body = document.getElementById('cercaBody');
     sec.style.display = '';
 
     const regionLabel = {catalunya:'Catalunya',espanya:'Espanya',europa:'Europa',japo:'Japo'}[region] || region;
 
-    // Show loading
     body.innerHTML = `
-        <div class="search-region-info">Cercant <strong>"${model}"</strong> a <strong>${regionLabel}</strong>...</div>
+        <div class="search-region-info">Cercant <strong>"${model}"</strong> a <strong>${regionLabel}</strong>${forceFresh ? ' (scraping complet...)' : '...'}</div>
         <div class="cerca-loading">
             <div class="cerca-spinner"></div>
-            <div>Cercant pianos de 2a ma a botigues especialitzades i marketplaces...</div>
+            <div>${forceFresh ? 'Fent scraping complet de totes les fonts... pot trigar uns segons.' : 'Cercant pianos de 2a ma a botigues especialitzades i marketplaces...'}</div>
         </div>`;
 
-    // Fetch real results from API
     let apiResults = [];
     let sources = [];
+    let isCached = false;
+    let scrapedAt = '';
     try {
-        const url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
+        let url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
+        if (forceFresh) url += '&fresh=1';
         const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
         const res = await fetch(url, isLocal ? {} : { credentials: 'same-origin' });
         const data = await res.json();
         apiResults = data.results || [];
         sources = data.sources || [];
+        isCached = !!data.cached;
+        scrapedAt = data.cached_at || data.scraped_at || '';
     } catch (e) {
         console.error('API error:', e);
     }
 
-    // Build table rows
     let realRows = '';
     if (apiResults.length > 0) {
         apiResults.forEach(r => {
@@ -1102,8 +1148,24 @@ async function renderCerca(model, region) {
 
     const srcBadges = sources.map(s => `<span class="src-badge">${s}</span>`).join('');
 
+    let freshnessBadge = '';
+    if (scrapedAt) {
+        const ago = timeAgo(scrapedAt);
+        if (isCached) {
+            freshnessBadge = `<span class="freshness-badge fb-cached">&#9201; Resultats de fa ${ago}</span>`;
+        } else {
+            freshnessBadge = `<span class="freshness-badge fb-fresh">&#10003; Scraping fresc</span>`;
+        }
+    }
+    const refreshBtn = `<button class="btn-refresh" onclick="doFreshSearch()" id="btnRefresh">&#8635; Actualitzar resultats</button>`;
+
     body.innerHTML = `
         <div class="search-region-info">Resultats per <strong>"${model}"</strong> a <strong>${regionLabel}</strong></div>
+
+        <div class="freshness-bar">
+            ${freshnessBadge}
+            ${refreshBtn}
+        </div>
 
         <div class="cerca-count">
             <strong>${apiResults.length}</strong> ofertes de 2a ma trobades
@@ -1128,6 +1190,22 @@ async function renderCerca(model, region) {
         <div class="cerca-none">
             Cap resultat trobat per "${model}" a ${regionLabel}. Prova amb un altre model o una regio mes amplia.
         </div>`}`;
+}
+
+function timeAgo(isoStr) {
+    const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+    if (diff < 60) return 'uns segons';
+    if (diff < 3600) return Math.floor(diff / 60) + ' min';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ' + Math.floor((diff % 3600) / 60) + 'min';
+    return Math.floor(diff / 86400) + ' dies';
+}
+
+async function doFreshSearch() {
+    const btn = document.getElementById('btnRefresh');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin">&#8635;</span> Actualitzant...'; }
+    const q = document.getElementById('searchInput').value.trim();
+    const region = document.getElementById('searchRegion').value;
+    if (q) await renderCerca(q, region, true);
 }
 
 // ==================== S3: BENCHMARK ====================

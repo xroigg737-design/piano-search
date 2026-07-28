@@ -4,6 +4,7 @@ header('Access-Control-Allow-Origin: *');
 
 $model  = trim($_GET['model'] ?? '');
 $region = trim($_GET['region'] ?? 'espanya');
+$fresh  = !empty($_GET['fresh']);
 
 if ($model === '') {
     die(json_encode(['error' => 'Cal especificar un model', 'results' => []]));
@@ -21,8 +22,11 @@ if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
 $cacheKey  = md5(mb_strtolower($model) . $region);
 $cacheFile = "$cacheDir/$cacheKey.json";
 
-if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 3600) {
-    readfile($cacheFile);
+if (!$fresh && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 3600) {
+    $cached = json_decode(file_get_contents($cacheFile), true);
+    $cached['cached'] = true;
+    $cached['cached_at'] = date('c', filemtime($cacheFile));
+    echo json_encode($cached, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
 
@@ -1030,12 +1034,13 @@ $results = array_values(array_filter($results, function($r) use (&$seen) {
 
 // ── Resposta ────────────────────────────────────────────────
 $response = [
-    'model'   => $model,
-    'region'  => $region,
-    'count'   => count($results),
-    'results' => array_values($results),
-    'sources' => array_values(array_unique(array_column($results, 'store'))),
-    'cached'  => false,
+    'model'     => $model,
+    'region'    => $region,
+    'count'     => count($results),
+    'results'   => array_values($results),
+    'sources'   => array_values(array_unique(array_column($results, 'store'))),
+    'cached'    => false,
+    'scraped_at' => date('c'),
 ];
 
 $json = json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);

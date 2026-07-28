@@ -108,7 +108,7 @@ function extractYearEx(string $text, string $title = ''): array {
         if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
     }
     // 6) Textual serial range: "superior a X millones", "mayor de X millones", "above X million"
-    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als)\s+(?:a|de|que|than)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
+    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als|encima|por\s+encima)\s+(?:a|de|que|than|los)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
         $millions = (int) $m[1];
         $prefix = $millions * 1000;
         $estYear = estimateYearFromPrefix((string) $prefix, $title);
@@ -165,7 +165,7 @@ function extractYearFromPage(string $html, string $title): array {
         if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
     }
     // 4) Textual serial range: "superior a X millones", "mayor de X millones"
-    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als)\s+(?:a|de|que|than)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
+    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als|encima|por\s+encima)\s+(?:a|de|que|than|los)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
         $millions = (int) $m[1];
         $prefix = $millions * 1000;
         $estYear = estimateYearFromPrefix((string) $prefix, $title);

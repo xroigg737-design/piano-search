@@ -816,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.8</p>
+    <p class="footer-version">v4.9</p>
 </footer>
 
 <script>
@@ -1158,7 +1158,8 @@ async function renderCerca(model, region, forceFresh = false) {
             const yConf = r.year_confidence || '';
             const yClass = r.year ? (yConf === 'exact' ? 'year-exact' : yConf === 'serial' ? 'year-serial' : yConf === 'estimated' ? 'year-estimated' : 'year-exact') : 'year-none';
             const yearCell = r.year ? `<span class="${yClass}">${r.year}</span>` : '<span class="year-none">-</span>';
-            const priceCell = r.price || '-';
+            const priceOriginal = r.price_original || '';
+            const priceCell = priceOriginal ? `<span title="${priceOriginal}">${r.price || '-'}</span>` : (r.price || '-');
             const titleShort = r.title.length > 65 ? r.title.substring(0, 62) + '...' : r.title;
             const condBadge = r.condition === '2a_ma' ? '<span class="cond-badge cond-2a">2a ma</span>'
                             : r.condition === 'nou' ? '<span class="cond-badge cond-nou">Nou</span>'

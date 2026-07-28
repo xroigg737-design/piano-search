@@ -1764,6 +1764,72 @@ $results = array_values(array_filter($results, function($r) use (&$seen) {
     return true;
 }));
 
+// ── Conversió JPY → EUR ────────────────────────────────────
+$hasJPY = false;
+foreach ($results as $r) {
+    if (str_contains($r['price'] ?? '', 'JPY')) { $hasJPY = true; break; }
+}
+if ($hasJPY) {
+    $jpyRate = null;
+    $rateFile = __DIR__ . '/cache/jpy_eur_rate.json';
+    if (file_exists($rateFile) && (time() - filemtime($rateFile)) < 86400) {
+        $rateData = json_decode(file_get_contents($rateFile), true);
+        $jpyRate = $rateData['rate'] ?? null;
+    }
+    if (!$jpyRate) {
+        $rateBody = fetch("https://open.er-api.com/v6/latest/JPY", 8);
+        if ($rateBody) {
+            $rateJson = json_decode($rateBody, true);
+            $jpyRate = $rateJson['rates']['EUR'] ?? null;
+            if ($jpyRate) @file_put_contents($rateFile, json_encode(['rate' => $jpyRate, 'updated' => date('c')]));
+        }
+    }
+    if ($jpyRate) {
+        foreach ($results as &$r) {
+            if (str_contains($r['price'] ?? '', 'JPY')) {
+                $jpyAmount = (int) preg_replace('/[^\d]/', '', $r['price']);
+                $eurAmount = round($jpyAmount * $jpyRate);
+                $r['price'] = number_format($eurAmount, 0, ',', '.') . ' EUR';
+                $r['price_original'] = number_format($jpyAmount, 0, ',', '.') . ' JPY';
+            }
+        }
+        unset($r);
+    }
+}
+
+// ── Conversió USD → EUR ────────────────────────────────────
+$hasUSD = false;
+foreach ($results as $r) {
+    if (preg_match('/^\$[\d,]+/', $r['price'] ?? '')) { $hasUSD = true; break; }
+}
+if ($hasUSD) {
+    $usdRate = null;
+    $usdRateFile = __DIR__ . '/cache/usd_eur_rate.json';
+    if (file_exists($usdRateFile) && (time() - filemtime($usdRateFile)) < 86400) {
+        $rateData = json_decode(file_get_contents($usdRateFile), true);
+        $usdRate = $rateData['rate'] ?? null;
+    }
+    if (!$usdRate) {
+        $rateBody = fetch("https://open.er-api.com/v6/latest/USD", 8);
+        if ($rateBody) {
+            $rateJson = json_decode($rateBody, true);
+            $usdRate = $rateJson['rates']['EUR'] ?? null;
+            if ($usdRate) @file_put_contents($usdRateFile, json_encode(['rate' => $usdRate, 'updated' => date('c')]));
+        }
+    }
+    if ($usdRate) {
+        foreach ($results as &$r) {
+            if (preg_match('/^\$([\d,]+(?:\.\d{2})?)/', $r['price'] ?? '', $m)) {
+                $usdAmount = (float) str_replace(',', '', $m[1]);
+                $eurAmount = round($usdAmount * $usdRate);
+                $r['price'] = number_format($eurAmount, 0, ',', '.') . ' EUR';
+                $r['price_original'] = '$' . $m[1];
+            }
+        }
+        unset($r);
+    }
+}
+
 // ── Resposta ────────────────────────────────────────────────
 foreach ($scrapersRun as &$sr) { unset($sr['start']); unset($sr['count_before']); }
 unset($sr);

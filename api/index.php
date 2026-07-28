@@ -77,25 +77,86 @@ function clean(string $s): string {
 }
 
 function extractYear(string $text, string $title = ''): string {
-    if (preg_match('/\b(19[6-9]\d|20[0-2]\d)(?=[^0-9]|$)/', $text, $m)) return $m[1];
-    $serial = extractSerial($text);
-    if ($serial) return serialToYear($serial, $title) ?: '';
-    return '';
+    $r = extractYearEx($text, $title);
+    return $r['year'];
 }
 
-function extractYearFromPage(string $html, string $title): string {
-    $text = strip_tags($html);
-    $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+function extractYearEx(string $text, string $title = ''): array {
+    // 1) Explicit year near keywords → exact
+    if (preg_match('/(?:año|any|fabricaci|built|baujahr|bouwjaar|from|de)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
+    }
+    // 2) Year in parentheses like "(1995)" or "(2007)" → exact
+    if (preg_match('/\(\s*(19[6-9]\d|20[0-2]\d)\s*\)/', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
+    }
+    // 3) Serial number → serial
     $serial = extractSerial($text);
     if ($serial) {
         $year = serialToYear($serial, $title);
-        if ($year) return $year;
+        if ($year) return ['year' => $year, 'confidence' => 'serial'];
     }
-    // Look for year near piano-related keywords only
-    if (preg_match('/(?:año|fabricaci|built|baujahr|bouwjaar)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
-        return $m[1];
+    // 4) Standalone year (less certain without context keyword) → exact but weaker
+    if (preg_match('/\b(19[6-9]\d|20[0-2]\d)(?=[^0-9]|$)/', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
     }
-    return '';
+    // 5) Partial serial prefix like "nº 632..." or "serie 5xx" → estimated
+    if (preg_match('/(?:serial|serie|s\/n|n[ºo°])\s*:?\s*[a-z]?(\d{3,4})/i', $text, $m)) {
+        $prefix = $m[1];
+        $estYear = estimateYearFromPrefix($prefix, $title);
+        if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
+    }
+    return ['year' => '', 'confidence' => ''];
+}
+
+function estimateYearFromPrefix(string $prefix, string $title = ''): ?string {
+    $n = (int) $prefix;
+    $isGrand = (bool) preg_match('/\b[CGS]\d/i', $title);
+    // Map 3-4 digit prefixes to approximate Hamamatsu years
+    $milestones = [
+        124 => 1960, 149 => 1961, 188 => 1962, 237 => 1963, 298 => 1964,
+        368 => 1965, 489 => 1966, 570 => 1967, 685 => 1968, 805 => 1969,
+        960 => 1970, 1130 => 1971, 1317 => 1972, 1510 => 1973, 1745 => 1974,
+        1945 => 1975, 2154 => 1976, 2384 => 1977, 2585 => 1978, 2810 => 1979,
+        3001 => 1980, 3261 => 1981, 3465 => 1982, 3646 => 1983, 3832 => 1984,
+        3987 => 1985, 4156 => 1986, 4334 => 1987, 4491 => 1988, 4672 => 1989,
+        4837 => 1990, 4967 => 1991, 5086 => 1992, 5204 => 1993, 5296 => 1994,
+        5375 => 1995, 5446 => 1996, 5530 => 1997, 5579 => 1998, 5792 => 1999,
+        5860 => 2000, 5920 => 2001, 5970 => 2002, 6020 => 2003, 6060 => 2004,
+        6100 => 2005, 6145 => 2006, 6191 => 2007, 6220 => 2008, 6250 => 2009,
+        6280 => 2010, 6310 => 2011, 6340 => 2012, 6360 => 2013, 6380 => 2014,
+        6400 => 2015, 6420 => 2016, 6440 => 2017, 6460 => 2018, 6480 => 2019,
+        6500 => 2020, 6520 => 2021,
+    ];
+    // If 3 digits, it's thousands (e.g., "632" = 6320000 range → ~2012)
+    if (strlen($prefix) === 3) $n *= 10;
+    $result = null;
+    foreach ($milestones as $start => $year) {
+        if ($n >= $start) $result = (string) $year;
+        else break;
+    }
+    return $result;
+}
+
+function extractYearFromPage(string $html, string $title): array {
+    $text = strip_tags($html);
+    $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+    // 1) Serial number → serial
+    $serial = extractSerial($text);
+    if ($serial) {
+        $year = serialToYear($serial, $title);
+        if ($year) return ['year' => $year, 'confidence' => 'serial'];
+    }
+    // 2) Year near keywords → exact
+    if (preg_match('/(?:año|any|fabricaci|built|baujahr|bouwjaar)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
+    }
+    // 3) Partial serial prefix → estimated
+    if (preg_match('/(?:serial|serie|s\/n|n[ºo°])\s*:?\s*[a-z]?(\d{3,4})/i', $text, $m)) {
+        $estYear = estimateYearFromPrefix($m[1], $title);
+        if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
+    }
+    return ['year' => '', 'confidence' => ''];
 }
 
 function extractSerial(string $text): ?string {
@@ -348,13 +409,14 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title) {
-                        $year = extractYear($title . ' ' . $desc, $title);
-                        if (!$year) $year = extractYearFromPage($pBody, $title);
+                        $yearInfo = extractYearEx($title . ' ' . $desc, $title);
+                        if (!$yearInfo['year']) $yearInfo = extractYearFromPage($pBody, $title);
                         $results[] = [
                             'store'    => 'La Casa dels Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => $year,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -397,19 +459,20 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
-                        $year = extractYear($title, $title);
+                        $yearInfo = extractYearEx($title, $title);
                         $desc = 'segunda mano';
-                        if (!$year) {
+                        if (!$yearInfo['year']) {
                             $pBody = fetch($link, 10);
                             if ($pBody) {
-                                $year = extractYearFromPage($pBody, $title);
+                                $yearInfo = extractYearFromPage($pBody, $title);
                             }
                         }
                         $results[] = [
                             'store'    => 'Art Guinardo',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => $year,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -447,16 +510,17 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
-                        $year = extractYear($title, $title);
-                        if (!$year) {
+                        $yearInfo = extractYearEx($title, $title);
+                        if (!$yearInfo['year']) {
                             $pBody = fetch($link, 10);
-                            if ($pBody) $year = extractYearFromPage($pBody, $title);
+                            if ($pBody) $yearInfo = extractYearFromPage($pBody, $title);
                         }
                         $results[] = [
                             'store'    => 'Audenis',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => $year,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -501,16 +565,17 @@ if (in_array($region, ['espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
-                        $year = extractYear($title, $title);
-                        if (!$year) {
+                        $yearInfo = extractYearEx($title, $title);
+                        if (!$yearInfo['year']) {
                             $pBody = fetch($link, 10);
-                            if ($pBody) $year = extractYearFromPage($pBody, $title);
+                            if ($pBody) $yearInfo = extractYearFromPage($pBody, $title);
                         }
                         $results[] = [
                             'store'    => 'Pianos Low Cost',
                             'location' => 'Madrid, Espanya',
                             'title'    => $title,
-                            'year'     => $year,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -564,11 +629,13 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title) {
+                        $yearInfo = extractYearEx($title, $title);
                         $results[] = [
                             'store'    => 'Corrales Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: 'Consultar',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -611,11 +678,13 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                 $desc = mb_substr(strip_tags($p['body_html'] ?? ''), 0, 150);
 
                 if ($title && $link) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => 'Pianos Can Puig',
                         'location' => 'Mataro, Catalunya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -675,11 +744,13 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     }
 
                     if ($title) {
+                        $yearInfo = extractYearEx($title, $title);
                         $results[] = [
                             'store'    => 'Sinergia Music',
                             'location' => 'Mataro, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -726,12 +797,13 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
                     if (preg_match('/Precio[:\s]*([\d.,]+)\s*€/i', $chunk, $pm)) {
                         $price = trim($pm[1]) . ' EUR';
                     }
-                    $year = extractYear($chunk, 'Yamaha ' . $jqModel);
+                    $yearInfo = extractYearEx($chunk, 'Yamaha ' . $jqModel);
                     $results[] = [
                         'store'    => 'Jorquera Pianos',
                         'location' => 'Barcelona, Catalunya',
                         'title'    => 'Yamaha ' . $jqModel,
-                        'year'     => $year,
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: 'Consultar',
                         'link'     => $jqUrl,
                         'image'    => '',
@@ -777,11 +849,13 @@ if (in_array($region, ['europa'])) {
                 }
 
                 if ($title && $link) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => 'Kleinanzeigen',
                         'location' => ($loc ?: 'Alemanya') . ', Alemanya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -821,11 +895,13 @@ if (in_array($region, ['europa'])) {
                 $linkUrl  = $vipUrl ? "https://www.marktplaats.nl{$vipUrl}" : '';
 
                 if ($title && $linkUrl) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => 'Marktplaats',
                         'location' => ($city ?: 'Holanda') . ', Holanda',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $priceStr,
                         'link'     => $linkUrl,
                         'image'    => $img,
@@ -865,11 +941,13 @@ if (in_array($region, ['europa'])) {
                 $linkUrl  = $vipUrl ? "https://www.2dehands.be{$vipUrl}" : '';
 
                 if ($title && $linkUrl) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => '2dehands.be',
                         'location' => ($city ?: 'Belgica') . ', Belgica',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $priceStr,
                         'link'     => $linkUrl,
                         'image'    => $img,
@@ -921,11 +999,13 @@ if (in_array($region, ['espanya', 'europa'])) {
 
                     if ($title && $link) {
                         $isOcasion = (bool) preg_match('/ocasi[oó]n|segunda\s*mano|2[ªa]\s*m[aà]|used|gebraucht/i', $title . ' ' . $link);
+                        $yearInfo = extractYearEx($title, $title);
                         $results[] = [
                             'store'    => 'Piano Importa',
                             'location' => 'Valencia, Espanya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
@@ -963,11 +1043,13 @@ foreach ($ebayDomains as $ebayDomain) {
 
                 if ($title && mb_strlen($title) > 5 && !str_contains(strtolower($title), 'shop on ebay')) {
                     $country = str_contains($ebayDomain, '.de') ? 'Alemanya' : 'Espanya';
+                    $yearInfo = extractYearEx($title, $title);
                     $results[] = [
                         'store'    => 'eBay',
                         'location' => $country,
                         'title'    => $title,
-                        'year'     => extractYear($title, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -1028,11 +1110,13 @@ if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
                     $desc  = $item['description'] ?? '';
 
                     if ($title) {
+                        $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                         $results[] = [
                             'store'    => 'Wallapop',
                             'location' => ($city ?: 'Espanya') . ', Espanya',
                             'title'    => clean($title),
-                            'year'     => extractYear($title . ' ' . $desc, $title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
                             'link'     => $slug ? "https://es.wallapop.com/item/{$slug}" : '',
                             'image'    => $img,
@@ -1062,11 +1146,13 @@ if (in_array($region, ['europa'])) {
                 $price = $ad['price'][0] ?? 0;
                 $title = $ad['subject'] ?? '';
                 if ($title) {
+                    $yearInfo = extractYearEx($title . ' ' . ($ad['body'] ?? ''), $title);
                     $results[] = [
                         'store'    => 'Leboncoin',
                         'location' => ($ad['location']['city'] ?? '') . ', Franca',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . ($ad['body'] ?? ''), $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
                         'link'     => $ad['url'] ?? '',
                         'image'    => $ad['images']['thumb_url'] ?? '',

@@ -424,7 +424,14 @@
         .results-table .td-price {
             font-weight: 800; color: #66dd88; white-space: nowrap; font-size: 1em;
         }
-        .results-table .td-year { white-space: nowrap; color: rgba(255,255,255,0.5); }
+        .results-table .td-year { white-space: nowrap; }
+        .year-exact { color: #ffffff; }
+        .year-serial { color: #ffcc44; }
+        .year-estimated { color: #ff9933; }
+        .year-none { color: rgba(255,255,255,0.35); }
+        .year-legend { display:flex; gap:14px; font-size:0.75em; margin-bottom:8px; opacity:0.85; flex-wrap:wrap; }
+        .year-legend span { display:inline-flex; align-items:center; gap:4px; }
+        .year-legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
         .results-table .td-title {
             max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             color: #e8e8e8;
@@ -809,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v3.9</p>
+    <p class="footer-version">v4.0</p>
 </footer>
 
 <script>
@@ -1130,7 +1137,9 @@ async function renderCerca(model, region, forceFresh = false) {
     if (apiResults.length > 0) {
         apiResults.forEach(r => {
             const thumb = r.image ? `<img class="td-thumb" src="${r.image}" alt="" onerror="this.style.display='none'">` : '';
-            const yearCell = r.year || '-';
+            const yConf = r.year_confidence || '';
+            const yClass = r.year ? (yConf === 'exact' ? 'year-exact' : yConf === 'serial' ? 'year-serial' : yConf === 'estimated' ? 'year-estimated' : 'year-exact') : 'year-none';
+            const yearCell = r.year ? `<span class="${yClass}">${r.year}</span>` : '<span class="year-none">-</span>';
             const priceCell = r.price || '-';
             const titleShort = r.title.length > 65 ? r.title.substring(0, 62) + '...' : r.title;
             const condBadge = r.condition === '2a_ma' ? '<span class="cond-badge cond-2a">2a ma</span>'
@@ -1188,6 +1197,11 @@ async function renderCerca(model, region, forceFresh = false) {
         </div>
 
         ${apiResults.length > 0 ? `
+        <div class="year-legend">
+            <span><span class="dot" style="background:#fff"></span> Any confirmat</span>
+            <span><span class="dot" style="background:#ffcc44"></span> Via num. serie</span>
+            <span><span class="dot" style="background:#ff9933"></span> Estimat</span>
+        </div>
         <div class="results-wrap">
             <table class="results-table">
                 <thead><tr>

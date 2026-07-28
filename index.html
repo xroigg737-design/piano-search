@@ -816,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.3</p>
+    <p class="footer-version">v4.4</p>
 </footer>
 
 <script>
@@ -1118,6 +1118,7 @@ async function renderCerca(model, region, forceFresh = false) {
     let isCached = false;
     let scrapedAt = '';
     let scrapers = {};
+    let debugInfo = null;
     try {
         let url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
         if (forceFresh) url += '&fresh=1';
@@ -1129,6 +1130,8 @@ async function renderCerca(model, region, forceFresh = false) {
         isCached = !!data.cached;
         scrapedAt = data.cached_at || data.scraped_at || '';
         scrapers = data.scrapers || {};
+        debugInfo = data.debug || null;
+        if (debugInfo) console.log('Piano Search debug:', debugInfo);
     } catch (e) {
         console.error('API error:', e);
     }
@@ -1170,13 +1173,22 @@ async function renderCerca(model, region, forceFresh = false) {
     }
     const refreshBtn = `<button class="btn-refresh" onclick="doFreshSearch()" id="btnRefresh">&#8635; Actualitzar resultats</button>`;
 
+    let debugHtml = '';
+    if (debugInfo && debugInfo.raw_total > 0) {
+        const byStore = Object.entries(debugInfo.raw_by_store || {}).map(([s,c]) => `${s}: ${c}`).join(', ');
+        debugHtml = `<div style="font-size:0.72em;color:rgba(255,255,255,0.25);margin-bottom:8px;padding:6px 10px;background:rgba(0,0,0,0.15);border-radius:6px">
+            Diagn&ograve;stic: ${debugInfo.raw_total} productes bruts trobats (${byStore}) &rarr; ${debugInfo.after_cond_filter} 2a ma &rarr; ${debugInfo.after_model_filter} coincideixen amb model &rarr; ${debugInfo.final_count} finals
+        </div>`;
+    }
+
     let scrapersHtml = '';
     if (Object.keys(scrapers).length > 0) {
         const dots = Object.entries(scrapers).map(([name, info]) => {
             const color = info.status === 'ok' ? '#66dd88' : info.status === 'error' ? '#ff6666' : '#ffaa00';
             const icon = info.status === 'ok' ? '&#10003;' : info.status === 'error' ? '&#10007;' : '&#8230;';
+            const foundInfo = info.found !== undefined ? ` [${info.found}]` : '';
             const time = info.time ? ` (${info.time}s)` : '';
-            return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:0.72em;background:rgba(255,255,255,0.03);color:${color}" title="${name}: ${info.status}${time}">${icon} ${name}</span>`;
+            return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:0.72em;background:rgba(255,255,255,0.03);color:${color}" title="${name}: ${info.status}${foundInfo}${time}">${icon} ${name}</span>`;
         }).join(' ');
         scrapersHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">${dots}</div>`;
     }
@@ -1190,6 +1202,7 @@ async function renderCerca(model, region, forceFresh = false) {
         </div>
 
         ${scrapersHtml}
+        ${debugHtml}
 
         <div class="cerca-count">
             <strong>${apiResults.length}</strong> ofertes de 2a ma trobades

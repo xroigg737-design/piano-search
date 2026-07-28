@@ -73,6 +73,28 @@ function fetch(string $url, int $timeout = 10): ?string {
     return ($code >= 200 && $code < 400 && $body) ? $body : null;
 }
 
+function fetchWithCode(string $url, int $timeout = 10): array {
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 5,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        CURLOPT_HTTPHEADER     => [
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language: ja,en;q=0.9,es;q=0.8',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return ['body' => $body, 'code' => $code];
+}
+
 function clean(string $s): string {
     return trim(preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($s, ENT_QUOTES|ENT_HTML5, 'UTF-8'))));
 }
@@ -343,10 +365,10 @@ function classifyCondition(string $title, string $link, string $store, string $d
         if (str_contains($text, $kw)) return '2a_ma';
     }
     // Marketplaces are second-hand by default
-    $mpStores = ['Wallapop','Kleinanzeigen','Marktplaats','eBay','Leboncoin'];
+    $mpStores = ['Wallapop','Kleinanzeigen','Marktplaats','eBay','Leboncoin','PianoMart','2dehands.be','2ememain.be','Yahoo Auctions JP','OLX.pl'];
     if (in_array($store, $mpStores)) return '2a_ma';
     // Specialist second-hand stores
-    $usedStores = ['Art Guinardo','Pianos Low Cost','La Casa dels Pianos','Pianos Can Puig','Sinergia Music','Jorquera Pianos'];
+    $usedStores = ['Art Guinardo','Pianos Low Cost','La Casa dels Pianos','Pianos Can Puig','Sinergia Music','Jorquera Pianos','Japan Used Piano'];
     if (in_array($store, $usedStores)) return '2a_ma';
     return 'desconegut';
 }
@@ -901,7 +923,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
 if (in_array($region, ['europa'])) {
     try {
         scraper('Kleinanzeigen');
-        $q = urlencode($searchModel . ' piano');
+        $q = urlencode($searchModel);
         $body = fetch("https://www.kleinanzeigen.de/s-musikinstrumente/{$q}/k0c74");
 
         if ($body && preg_match_all('/class="aditem\b[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
@@ -1040,6 +1062,52 @@ if (in_array($region, ['europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// 10b-bis) 2EMEMAIN.BE (Bèlgica francòfona) - __NEXT_DATA__
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        scraper('2ememain.be');
+        $q = urlencode($searchModel . ' piano');
+        $body = fetch("https://www.2ememain.be/q/{$q}/");
+
+        if ($body && preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
+            $json = json_decode($m[1], true);
+            $listings = $json['props']['pageProps']['searchRequestAndResponse']['listings'] ?? [];
+
+            foreach (array_slice($listings, 0, 12) as $l) {
+                $title = $l['title'] ?? '';
+                $priceCents = $l['priceInfo']['priceCents'] ?? 0;
+                $priceType  = $l['priceInfo']['priceType'] ?? '';
+                $city       = $l['location']['cityName'] ?? '';
+                $vipUrl     = $l['vipUrl'] ?? '';
+                $img        = $l['imageUrls'][0] ?? '';
+                $desc       = $l['description'] ?? '';
+
+                $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
+                $linkUrl  = $vipUrl ? "https://www.2ememain.be{$vipUrl}" : '';
+
+                if ($title && $linkUrl) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
+                    $results[] = [
+                        'store'    => '2ememain.be',
+                        'location' => ($city ?: 'Belgica') . ', Belgica',
+                        'title'    => clean($title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
+                        'price'    => $priceStr,
+                        'link'     => $linkUrl,
+                        'image'    => $img,
+                        'desc'     => clean(mb_substr($desc, 0, 150)),
+                    ];
+                }
+            }
+        }
+
+        scraperDone('2ememain.be');
+    } catch (\Throwable $e) { scraperFail('2ememain.be');}
+}
+
+// ══════════════════════════════════════════════════════════════
 // 10c) PIANO IMPORTA (València) - WooCommerce search
 // ══════════════════════════════════════════════════════════════
 if (in_array($region, ['espanya', 'europa'])) {
@@ -1103,11 +1171,226 @@ if (in_array($region, ['espanya', 'europa'])) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 11) EBAY (.es i .de)
+// 11a) PIANOMART (Global - marketplace de pianos)
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo', 'europa', 'espanya'])) {
+    try {
+        scraper('PianoMart');
+        $q = urlencode($searchModel);
+        $body = fetch("https://www.pianomart.com/buy-a-piano/piano-ads?AdSearchForm%5Bsearch%5D={$q}", 15);
+
+        if ($body && preg_match_all('/<tr[^>]*data-key="(\d+)"[^>]*>(.*?)<\/tr>/si', $body, $rows, PREG_SET_ORDER)) {
+            foreach (array_slice($rows, 0, 12) as $row) {
+                $adId = $row[1];
+                $html = $row[2];
+                $cells = [];
+                if (preg_match_all('/<td[^>]*>(.*?)<\/td>/si', $html, $cellMatches)) {
+                    $cells = $cellMatches[1];
+                }
+                if (count($cells) < 8) continue;
+
+                $year  = trim(strip_tags($cells[1]));
+                $title = trim(strip_tags($cells[2]));
+                $price = trim(strip_tags($cells[4]));
+                $state = trim(strip_tags($cells[5]));
+                $city  = trim(strip_tags($cells[6]));
+                $link  = '';
+                $img   = '';
+
+                if (preg_match('/href="(\/buy-a-piano\/view\?id=\d+)"/', $cells[2], $m)) {
+                    $link = 'https://www.pianomart.com' . $m[1];
+                }
+                if (preg_match('/src="([^"]+)"/', $cells[0], $m)) {
+                    $img = $m[1];
+                }
+
+                $location = trim($city . ', ' . $state);
+                if ($title && $link) {
+                    $yearInfo = ['year' => '', 'confidence' => ''];
+                    if ($year && preg_match('/^\d{4}$/', $year)) {
+                        $yearInfo = ['year' => $year, 'confidence' => 'stated'];
+                    }
+                    if (!$yearInfo['year']) {
+                        $yearInfo = extractYearEx($title, $title);
+                    }
+                    $results[] = [
+                        'store'    => 'PianoMart',
+                        'location' => $location ?: 'Global',
+                        'title'    => clean($title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
+                        'price'    => $price ?: '-',
+                        'link'     => $link,
+                        'image'    => $img,
+                        'desc'     => '',
+                    ];
+                }
+            }
+        }
+
+        scraperDone('PianoMart');
+    } catch (\Throwable $e) { scraperFail('PianoMart');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11b) JAPAN USED PIANO (japanusedpiano.com) - WooCommerce
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Japan Used Piano');
+        $q = urlencode($searchModel);
+        $body = fetch("https://www.japanusedpiano.com/?s={$q}&post_type=product", 15);
+
+        if ($body) {
+            if (preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+                foreach (array_slice($items[1], 0, 10) as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+
+                    if (preg_match('/href="(https?:\/\/www\.japanusedpiano\.com\/product\/[^"]+)"/i', $item, $m)) {
+                        $link = $m[1];
+                    }
+                    if (preg_match('/class="woocommerce-loop-product__title"[^>]*>(.*?)<\//si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (!$title && preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/<img[^>]+(?:src|data-src)="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+                    if (preg_match('/amount"[^>]*>([\d.,]+)/si', $item, $m)) {
+                        $price = '$' . trim($m[1]);
+                    } elseif (preg_match('/\$([\d,]+(?:\.\d{2})?)/', $item, $m)) {
+                        $price = '$' . $m[1];
+                    }
+
+                    if ($title && $link) {
+                        $yearInfo = extractYearEx($title, $title);
+                        if (!$yearInfo['year']) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) $yearInfo = extractYearFromPage($pBody, $title);
+                        }
+                        $results[] = [
+                            'store'    => 'Japan Used Piano',
+                            'location' => 'Japó',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ?: '-',
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+            if (!preg_match('/search-no-results/', $body)) {
+                $categoryUrl = "https://www.japanusedpiano.com/product-category/yamaha/";
+                $catBody = fetch($categoryUrl, 15);
+                if ($catBody && preg_match_all('/href="(https?:\/\/www\.japanusedpiano\.com\/product\/[^"]+)"/i', $catBody, $catLinks)) {
+                    $catProductLinks = array_unique($catLinks[1]);
+                    foreach (array_slice($catProductLinks, 0, 8) as $pLink) {
+                        $existsAlready = false;
+                        foreach ($results as $r) { if ($r['link'] === $pLink) { $existsAlready = true; break; } }
+                        if ($existsAlready) continue;
+
+                        $pBody = fetch($pLink, 10);
+                        if (!$pBody) continue;
+                        $pTitle = '';
+                        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/si', $pBody, $m)) $pTitle = clean($m[1]);
+                        if (!$pTitle) continue;
+
+                        $pImg = '';
+                        if (preg_match('/<img[^>]+src="(https?:\/\/www\.japanusedpiano\.com\/wp-content\/uploads\/[^"]+)"/i', $pBody, $m)) {
+                            $pImg = $m[1];
+                        }
+                        $pPrice = '';
+                        if (preg_match('/\$([\d,]+(?:\.\d{2})?)/', $pBody, $m)) {
+                            $pPrice = '$' . $m[1];
+                        }
+
+                        $yearInfo = extractYearEx($pTitle, $pTitle);
+                        if (!$yearInfo['year']) $yearInfo = extractYearFromPage($pBody, $pTitle);
+
+                        $results[] = [
+                            'store'    => 'Japan Used Piano',
+                            'location' => 'Japó',
+                            'title'    => $pTitle,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $pPrice ?: '-',
+                            'link'     => $pLink,
+                            'image'    => $pImg,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+        }
+
+        scraperDone('Japan Used Piano');
+    } catch (\Throwable $e) { scraperFail('Japan Used Piano');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11c) YAHOO AUCTIONS JAPAN (via web search fallback)
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Yahoo Auctions JP');
+        $q = urlencode($searchModel . ' ピアノ');
+        $resp = fetchWithCode("https://auctions.yahoo.co.jp/search/search?p={$q}&auccat=22540&va={$q}&exflg=1&b=1&n=20", 15);
+
+        if ($resp['code'] >= 400 || !$resp['body']) {
+            $scrapersRun['Yahoo Auctions JP']['status'] = 'blocked';
+            $scrapersRun['Yahoo Auctions JP']['note'] = 'Requereix IP japonesa';
+        } else {
+            $body = $resp['body'];
+            if (preg_match_all('/<li[^>]*class="[^"]*Product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+                foreach (array_slice($items[1], 0, 10) as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+
+                    if (preg_match('/href="(https?:\/\/page\.auctions\.yahoo\.co\.jp\/[^"]+)"/i', $item, $m)) {
+                        $link = $m[1];
+                    }
+                    if (preg_match('/Product__title[^>]*>(?:<a[^>]*>)?(.*?)(?:<\/a>)?<\//si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/Product__priceValue[^>]*>(.*?)<\//si', $item, $m)) {
+                        $price = '¥' . clean($m[1]);
+                    }
+                    if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+
+                    if ($title && $link) {
+                        $yearInfo = extractYearEx($title, $title);
+                        $results[] = [
+                            'store'    => 'Yahoo Auctions JP',
+                            'location' => 'Japó',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ?: '-',
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+            scraperDone('Yahoo Auctions JP');
+        }
+    } catch (\Throwable $e) { scraperFail('Yahoo Auctions JP');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 12) EBAY (.es, .de, .com)
 // ══════════════════════════════════════════════════════════════
 $ebayDomains = [];
 if (in_array($region, ['espanya', 'catalunya'])) $ebayDomains[] = 'www.ebay.es';
 if ($region === 'europa') { $ebayDomains[] = 'www.ebay.es'; $ebayDomains[] = 'www.ebay.de'; }
+if ($region === 'japo') { $ebayDomains[] = 'www.ebay.com'; }
 
 foreach ($ebayDomains as $ebayDomain) {
     try {
@@ -1125,7 +1408,7 @@ foreach ($ebayDomains as $ebayDomain) {
                 if (preg_match('/<img[^>]*src="(https?:\/\/i\.ebayimg[^"]*)"/', $item, $m)) $img = $m[1];
 
                 if ($title && mb_strlen($title) > 5 && !str_contains(strtolower($title), 'shop on ebay')) {
-                    $country = str_contains($ebayDomain, '.de') ? 'Alemanya' : 'Espanya';
+                    $country = str_contains($ebayDomain, '.de') ? 'Alemanya' : (str_contains($ebayDomain, '.com') ? 'Global' : 'Espanya');
                     $yearInfo = extractYearEx($title, $title);
                     $results[] = [
                         'store'    => 'eBay',
@@ -1225,33 +1508,89 @@ if (in_array($region, ['europa'])) {
     try {
         scraper('Leboncoin');
         $q = urlencode($searchModel . ' piano');
-        $body = fetch("https://www.leboncoin.fr/recherche?text={$q}&category=26");
+        $resp = fetchWithCode("https://www.leboncoin.fr/recherche?text={$q}&category=26");
 
-        if ($body && preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
-            $json = json_decode($m[1], true);
-            $ads  = $json['props']['pageProps']['searchData']['ads'] ?? [];
-            foreach (array_slice($ads, 0, 10) as $ad) {
-                $price = $ad['price'][0] ?? 0;
-                $title = $ad['subject'] ?? '';
-                if ($title) {
-                    $yearInfo = extractYearEx($title . ' ' . ($ad['body'] ?? ''), $title);
-                    $results[] = [
-                        'store'    => 'Leboncoin',
-                        'location' => ($ad['location']['city'] ?? '') . ', Franca',
-                        'title'    => clean($title),
-                        'year'     => $yearInfo['year'],
-                        'year_confidence' => $yearInfo['confidence'],
-                        'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
-                        'link'     => $ad['url'] ?? '',
-                        'image'    => $ad['images']['thumb_url'] ?? '',
-                        'desc'     => clean(mb_substr($ad['body'] ?? '', 0, 150)),
-                    ];
+        if ($resp['code'] >= 400 || !$resp['body']) {
+            $scrapersRun['Leboncoin']['status'] = 'blocked';
+            $scrapersRun['Leboncoin']['note'] = 'Anti-bot DataDome';
+        } else {
+            $body = $resp['body'];
+            if (preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
+                $json = json_decode($m[1], true);
+                $ads  = $json['props']['pageProps']['searchData']['ads'] ?? [];
+                foreach (array_slice($ads, 0, 10) as $ad) {
+                    $price = $ad['price'][0] ?? 0;
+                    $title = $ad['subject'] ?? '';
+                    if ($title) {
+                        $yearInfo = extractYearEx($title . ' ' . ($ad['body'] ?? ''), $title);
+                        $results[] = [
+                            'store'    => 'Leboncoin',
+                            'location' => ($ad['location']['city'] ?? '') . ', Franca',
+                            'title'    => clean($title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
+                            'link'     => $ad['url'] ?? '',
+                            'image'    => $ad['images']['thumb_url'] ?? '',
+                            'desc'     => clean(mb_substr($ad['body'] ?? '', 0, 150)),
+                        ];
+                    }
+                }
+            }
+            scraperDone('Leboncoin');
+        }
+    } catch (\Throwable $e) { scraperFail('Leboncoin');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 14) OLX.PL (Polònia) - HTML cards
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        scraper('OLX.pl');
+        $q = urlencode($searchModel . ' pianino');
+        $body = fetch("https://www.olx.pl/oferty/q-{$q}/", 15);
+
+        if ($body) {
+            if (preg_match_all('/data-cy="l-card"[^>]*id="(\d+)".*?href="(\/d\/oferta\/[^"]+)".*?<h4[^>]*>(.*?)<\/h4>.*?data-testid="ad-price"[^>]*>(.*?)<\/p>/si', $body, $cards, PREG_SET_ORDER)) {
+                foreach (array_slice($cards, 0, 15) as $card) {
+                    $adId    = $card[1];
+                    $link    = 'https://www.olx.pl' . strtok($card[2], '?');
+                    $title   = clean($card[3]);
+                    $priceRaw = $card[4];
+                    $price = '-';
+                    if (preg_match('/([\d\s]+)\s*zł/', $priceRaw, $pm)) {
+                        $price = trim($pm[1]) . ' PLN';
+                    }
+                    $img = '';
+                    if (preg_match('/src="(https?:\/\/[^"]*apollo\.olxcdn[^"]+)"/i', $card[0], $im)) {
+                        $img = $im[1];
+                    }
+                    $loc = '';
+                    if (preg_match('/data-testid="location-date"[^>]*>(.*?)</si', $body, $lm)) {
+                        $loc = clean($lm[1]);
+                    }
+
+                    if ($title) {
+                        $yearInfo = extractYearEx($title, $title);
+                        $results[] = [
+                            'store'    => 'OLX.pl',
+                            'location' => ($loc ?: 'Polònia') . ', Polònia',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price,
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
+                        ];
+                    }
                 }
             }
         }
-    
-        scraperDone('Leboncoin');
-    } catch (\Throwable $e) { scraperFail('Leboncoin');}
+
+        scraperDone('OLX.pl');
+    } catch (\Throwable $e) { scraperFail('OLX.pl');}
 }
 
 // ── Diagnòstic: comptar resultats bruts per font ────────────

@@ -707,7 +707,7 @@
         <option value="catalunya">Catalunya</option>
         <option value="espanya">Espanya</option>
         <option value="europa">Europa</option>
-        <option value="japo">Japo</option>
+        <option value="japo">Japó</option>
     </select>
     <button class="btn-search" onclick="doSearch()">&#128269; Cercar</button>
 </div>
@@ -816,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.4</p>
+    <p class="footer-version">v4.6</p>
 </footer>
 
 <script>
@@ -981,13 +981,17 @@ const STORES = {
         { name:'Piano\'s Maene', city:'Belgica', type:'specialist', url:'https://www.maene.be' },
         { name:'Thomann', city:'Alemanya', type:'dealer', url:'https://www.thomann.de' },
         { name:'Klavier Kreisel', city:'Alemanya', type:'specialist', url:'https://www.klavier-kreisel.de' },
-        { name:'Piano Centre', city:'Londres, UK', type:'specialist', url:'https://www.pianocentre.co.uk' },
+        { name:'OLX.pl', city:'Polònia', type:'marketplace', url:'https://www.olx.pl', tpl:'https://www.olx.pl/oferty/q-{q}-pianino/' },
+        { name:'Allegro.pl', city:'Polònia', type:'marketplace', url:'https://allegro.pl', tpl:'https://allegro.pl/listing?string={q}+pianino' },
+        { name:'2ememain.be', city:'Bèlgica FR', type:'marketplace', url:'https://www.2ememain.be', tpl:'https://www.2ememain.be/q/{q}+piano/' },
+        { name:'Leboncoin', city:'França', type:'marketplace', url:'https://www.leboncoin.fr', tpl:'https://www.leboncoin.fr/recherche?text={q}&category=26' },
     ],
     japo: [
-        { name:'Japan Piano Service', city:'Japo', type:'specialist', url:'https://www.japanpianoservice.com' },
+        { name:'Japan Used Piano', city:'Japó', type:'specialist', url:'https://www.japanusedpiano.com' },
         { name:'Piano Plaza', city:'Tokyo', type:'specialist', url:'https://www.pianoplaza.com' },
-        { name:'Shimamura Music', city:'Japo', type:'dealer', url:'https://www.shimamura.co.jp' },
-        { name:'Yahoo Auctions Japan', city:'Japo', type:'auction', url:'https://auctions.yahoo.co.jp' },
+        { name:'Yahoo Auctions Japan', city:'Japó', type:'auction', url:'https://auctions.yahoo.co.jp', tpl:'https://auctions.yahoo.co.jp/search/search?p={q}+ピアノ&auccat=22540' },
+        { name:'Mercari Japan', city:'Japó', type:'marketplace', url:'https://jp.mercari.com', tpl:'https://jp.mercari.com/search?keyword={q}+ピアノ' },
+        { name:'PianoMart', city:'Global', type:'marketplace', url:'https://www.pianomart.com', tpl:'https://www.pianomart.com/buy-a-piano/piano-ads?AdSearchForm%5Bsearch%5D={q}' },
     ],
     marketplaces: [
         { name:'Wallapop', city:'Espanya', type:'marketplace', url:'https://es.wallapop.com', tpl:'https://es.wallapop.com/app/search?keywords={q}&category_ids=12467' },
@@ -995,6 +999,7 @@ const STORES = {
         { name:'eBay Espanya', city:'Europa', type:'marketplace', url:'https://www.ebay.es', tpl:'https://www.ebay.es/sch/i.html?_nkw={q}&_sacat=180015' },
         { name:'Leboncoin', city:'Franca', type:'marketplace', url:'https://www.leboncoin.fr', tpl:'https://www.leboncoin.fr/recherche?text={q}&category=26' },
         { name:'Kleinanzeigen', city:'Alemanya', type:'marketplace', url:'https://www.kleinanzeigen.de', tpl:'https://www.kleinanzeigen.de/s-musikinstrumente/{q}/k0c74' },
+        { name:'PianoMart', city:'Global', type:'marketplace', url:'https://www.pianomart.com', tpl:'https://www.pianomart.com/buy-a-piano/piano-ads?AdSearchForm%5Bsearch%5D={q}' },
     ]
 };
 
@@ -1104,7 +1109,7 @@ async function renderCerca(model, region, forceFresh = false) {
     const body = document.getElementById('cercaBody');
     sec.style.display = '';
 
-    const regionLabel = {catalunya:'Catalunya',espanya:'Espanya',europa:'Europa',japo:'Japo'}[region] || region;
+    const regionLabel = {catalunya:'Catalunya',espanya:'Espanya',europa:'Europa',japo:'Japó'}[region] || region;
 
     body.innerHTML = `
         <div class="search-region-info">Cercant <strong>"${model}"</strong> a <strong>${regionLabel}</strong>${forceFresh ? ' (scraping complet...)' : '...'}</div>
@@ -1184,11 +1189,12 @@ async function renderCerca(model, region, forceFresh = false) {
     let scrapersHtml = '';
     if (Object.keys(scrapers).length > 0) {
         const dots = Object.entries(scrapers).map(([name, info]) => {
-            const color = info.status === 'ok' ? '#66dd88' : info.status === 'error' ? '#ff6666' : '#ffaa00';
-            const icon = info.status === 'ok' ? '&#10003;' : info.status === 'error' ? '&#10007;' : '&#8230;';
+            const color = info.status === 'ok' ? '#66dd88' : info.status === 'blocked' ? '#ffaa00' : info.status === 'error' ? '#ff6666' : '#ffaa00';
+            const icon = info.status === 'ok' ? '&#10003;' : info.status === 'blocked' ? '&#128274;' : info.status === 'error' ? '&#10007;' : '&#8230;';
             const foundInfo = info.found !== undefined ? ` [${info.found}]` : '';
             const time = info.time ? ` (${info.time}s)` : '';
-            return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:0.72em;background:rgba(255,255,255,0.03);color:${color}" title="${name}: ${info.status}${foundInfo}${time}">${icon} ${name}</span>`;
+            const note = info.note ? ` - ${info.note}` : '';
+            return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:0.72em;background:rgba(255,255,255,0.03);color:${color}" title="${name}: ${info.status}${foundInfo}${time}${note}">${icon} ${name}</span>`;
         }).join(' ');
         scrapersHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">${dots}</div>`;
     }
@@ -1231,6 +1237,14 @@ async function renderCerca(model, region, forceFresh = false) {
         </div>` : `
         <div class="cerca-none">
             Cap resultat trobat per "${model}" a ${regionLabel}. Prova amb un altre model o una regio mes amplia.
+            ${region === 'japo' ? `<div style="margin-top:12px;font-size:0.9em;color:rgba(255,255,255,0.5)">
+                Les webs japoneses (Yahoo Auctions, Mercari) bloquegen accessos des de fora del Japo. Pots cercar manualment:
+                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">
+                    <a href="https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(model)}+%E3%83%94%E3%82%A2%E3%83%8E&auccat=22540" target="_blank" style="color:#8ac4ff;text-decoration:underline">Yahoo Auctions JP</a>
+                    <a href="https://jp.mercari.com/search?keyword=${encodeURIComponent(model)}+%E3%83%94%E3%82%A2%E3%83%8E" target="_blank" style="color:#8ac4ff;text-decoration:underline">Mercari Japan</a>
+                    <a href="https://www.pianoplaza.com/en/" target="_blank" style="color:#8ac4ff;text-decoration:underline">Piano Plaza Tokyo</a>
+                </div>
+            </div>` : ''}
         </div>`}`;
 }
 

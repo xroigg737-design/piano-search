@@ -762,12 +762,12 @@ if (in_array($region, ['europa'])) {
                 $priceCents = $l['priceInfo']['priceCents'] ?? 0;
                 $priceType  = $l['priceInfo']['priceType'] ?? '';
                 $city       = $l['location']['cityName'] ?? '';
-                $slug       = $l['itemId'] ?? '';
+                $vipUrl     = $l['vipUrl'] ?? '';
                 $img        = $l['imageUrls'][0] ?? '';
                 $desc       = $l['description'] ?? '';
 
                 $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
-                $linkUrl  = $slug ? "https://www.marktplaats.nl/v/detail/{$slug}" : '';
+                $linkUrl  = $vipUrl ? "https://www.marktplaats.nl{$vipUrl}" : '';
 
                 if ($title && $linkUrl) {
                     $results[] = [
@@ -780,6 +780,94 @@ if (in_array($region, ['europa'])) {
                         'image'    => $img,
                         'desc'     => clean(mb_substr($desc, 0, 150)),
                     ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 10b) 2DEHANDS.BE (Bèlgica) - __NEXT_DATA__ (same platform as Marktplaats)
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        $q = urlencode($searchModel . ' piano');
+        $body = fetch("https://www.2dehands.be/q/{$q}/");
+
+        if ($body && preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
+            $json = json_decode($m[1], true);
+            $listings = $json['props']['pageProps']['searchRequestAndResponse']['listings'] ?? [];
+
+            foreach (array_slice($listings, 0, 12) as $l) {
+                $title = $l['title'] ?? '';
+                $priceCents = $l['priceInfo']['priceCents'] ?? 0;
+                $priceType  = $l['priceInfo']['priceType'] ?? '';
+                $city       = $l['location']['cityName'] ?? '';
+                $vipUrl     = $l['vipUrl'] ?? '';
+                $img        = $l['imageUrls'][0] ?? '';
+                $desc       = $l['description'] ?? '';
+
+                $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
+                $linkUrl  = $vipUrl ? "https://www.2dehands.be{$vipUrl}" : '';
+
+                if ($title && $linkUrl) {
+                    $results[] = [
+                        'store'    => '2dehands.be',
+                        'location' => ($city ?: 'Belgica') . ', Belgica',
+                        'title'    => clean($title),
+                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'price'    => $priceStr,
+                        'link'     => $linkUrl,
+                        'image'    => $img,
+                        'desc'     => clean(mb_substr($desc, 0, 150)),
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 10c) PIANO IMPORTA (València) - WooCommerce search
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['espanya', 'europa'])) {
+    try {
+        $q = urlencode($searchModel);
+        $body = fetch("https://pianoimporta.com/?s={$q}&post_type=product");
+
+        if ($body) {
+            if (preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+                foreach (array_slice($items[1], 0, 10) as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+
+                    if (preg_match('/href="(https?:\/\/pianoimporta\.com\/producto\/[^"]+)"/i', $item, $m)) {
+                        $link = $m[1];
+                    }
+                    if (preg_match('/class="woocommerce-loop-product__title"[^>]*>(.*?)<\//si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (!$title && preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+                    if (preg_match('/amount"[^>]*>([\d.,]+)\s*(?:€|&euro;)/si', $item, $m)) {
+                        $price = trim($m[1]) . ' EUR';
+                    }
+
+                    if ($title && $link) {
+                        $results[] = [
+                            'store'    => 'Piano Importa',
+                            'location' => 'Valencia, Espanya',
+                            'title'    => $title,
+                            'year'     => extractYear($title, $title),
+                            'price'    => $price ?: '-',
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => 'ocasion segunda mano',
+                        ];
+                    }
                 }
             }
         }

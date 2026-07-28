@@ -816,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.6</p>
+    <p class="footer-version">v4.7</p>
 </footer>
 
 <script>
@@ -1140,6 +1140,14 @@ async function renderCerca(model, region, forceFresh = false) {
     } catch (e) {
         console.error('API error:', e);
     }
+
+    const parsePrice = s => {
+        if (!s || s === '-') return Infinity;
+        const m = s.replace(/[^\d.,]/g, ' ').trim().match(/([\d.]+,\d{2}|[\d.]+)/);
+        if (!m) return Infinity;
+        return parseFloat(m[1].replace(/\./g, '').replace(',', '.')) || Infinity;
+    };
+    apiResults.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
 
     let realRows = '';
     if (apiResults.length > 0) {

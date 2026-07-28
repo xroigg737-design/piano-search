@@ -861,6 +861,7 @@ if (in_array($region, ['espanya', 'europa'])) {
                     }
 
                     if ($title && $link) {
+                        $isOcasion = (bool) preg_match('/ocasi[oó]n|segunda\s*mano|2[ªa]\s*m[aà]|used|gebraucht/i', $title . ' ' . $link);
                         $results[] = [
                             'store'    => 'Piano Importa',
                             'location' => 'Valencia, Espanya',
@@ -869,7 +870,7 @@ if (in_array($region, ['espanya', 'europa'])) {
                             'price'    => $price ?: '-',
                             'link'     => $link,
                             'image'    => $img,
-                            'desc'     => 'ocasion segunda mano',
+                            'desc'     => $isOcasion ? 'ocasion segunda mano' : '',
                         ];
                     }
                 }

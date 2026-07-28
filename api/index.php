@@ -920,56 +920,64 @@ foreach ($ebayDomains as $ebayDomain) {
 // ══════════════════════════════════════════════════════════════
 // 12) WALLAPOP (Espanya) - API JSON
 // ══════════════════════════════════════════════════════════════
-if (in_array($region, ['espanya', 'catalunya'])) {
-    try {
-        $q = urlencode($searchModel . ' piano');
-        $lat = $region === 'catalunya' ? '41.3851' : '40.4168';
-        $lon = $region === 'catalunya' ? '2.1734' : '-3.7038';
+if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
+    $wpLocations = [];
+    if ($region === 'catalunya') {
+        $wpLocations[] = ['41.3851', '2.1734'];
+    } elseif ($region === 'espanya' || $region === 'europa') {
+        $wpLocations[] = ['41.3851', '2.1734'];   // Barcelona
+        $wpLocations[] = ['40.4168', '-3.7038'];   // Madrid
+        $wpLocations[] = ['39.4699', '-0.3763'];   // València
+    }
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => "https://api.wallapop.com/api/v3/general/search?keywords={$q}&latitude={$lat}&longitude={$lon}&filters_source=default_filters&order_by=newest",
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT        => 12,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_ENCODING       => '',
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-            CURLOPT_HTTPHEADER     => [
-                'Accept: application/json, text/plain, */*',
-                'X-DeviceOS: 0',
-            ],
-        ]);
-        $wBody = curl_exec($ch);
-        $wCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+    foreach ($wpLocations as [$lat, $lon]) {
+        try {
+            $q = urlencode($searchModel . ' piano');
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => "https://api.wallapop.com/api/v3/general/search?keywords={$q}&latitude={$lat}&longitude={$lon}&filters_source=default_filters&order_by=newest",
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT        => 12,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_ENCODING       => '',
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                CURLOPT_HTTPHEADER     => [
+                    'Accept: application/json, text/plain, */*',
+                    'X-DeviceOS: 0',
+                ],
+            ]);
+            $wBody = curl_exec($ch);
+            $wCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-        if ($wCode >= 200 && $wCode < 400 && $wBody) {
-            $json = json_decode($wBody, true);
-            $items = $json['search_objects'] ?? [];
-            foreach (array_slice($items, 0, 12) as $item) {
-                $title = $item['title'] ?? '';
-                $price = $item['price'] ?? 0;
-                $city  = $item['location']['city'] ?? '';
-                $slug  = $item['web_slug'] ?? $item['id'] ?? '';
-                $img   = $item['images'][0]['medium'] ?? $item['images'][0]['original'] ?? '';
-                $desc  = $item['description'] ?? '';
+            if ($wCode >= 200 && $wCode < 400 && $wBody) {
+                $json = json_decode($wBody, true);
+                $items = $json['search_objects'] ?? [];
+                foreach (array_slice($items, 0, 12) as $item) {
+                    $title = $item['title'] ?? '';
+                    $price = $item['price'] ?? 0;
+                    $city  = $item['location']['city'] ?? '';
+                    $slug  = $item['web_slug'] ?? $item['id'] ?? '';
+                    $img   = $item['images'][0]['medium'] ?? $item['images'][0]['original'] ?? '';
+                    $desc  = $item['description'] ?? '';
 
-                if ($title) {
-                    $results[] = [
-                        'store'    => 'Wallapop',
-                        'location' => ($city ?: 'Espanya') . ', Espanya',
-                        'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
-                        'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
-                        'link'     => $slug ? "https://es.wallapop.com/item/{$slug}" : '',
-                        'image'    => $img,
-                        'desc'     => clean(mb_substr($desc, 0, 150)),
-                    ];
+                    if ($title) {
+                        $results[] = [
+                            'store'    => 'Wallapop',
+                            'location' => ($city ?: 'Espanya') . ', Espanya',
+                            'title'    => clean($title),
+                            'year'     => extractYear($title . ' ' . $desc, $title),
+                            'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
+                            'link'     => $slug ? "https://es.wallapop.com/item/{$slug}" : '',
+                            'image'    => $img,
+                            'desc'     => clean(mb_substr($desc, 0, 150)),
+                        ];
+                    }
                 }
             }
-        }
-    } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {}
+    }
 }
 
 // ══════════════════════════════════════════════════════════════

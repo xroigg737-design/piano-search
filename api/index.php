@@ -375,14 +375,14 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
         scraper('La Casa dels Pianos');
         $q = urlencode($searchModel);
-        $body = fetch("https://lacasadelspianos.com/es/?s={$q}");
+        $body = fetch("https://lacasadelspianos.com/es/?s={$q}", 15);
 
         if ($body) {
             // Find product links in search results
             if (preg_match_all('/href="(https?:\/\/lacasadelspianos\.com\/es\/pianos-item\/[^"]+)"/i', $body, $links)) {
                 $productLinks = array_unique($links[1]);
                 foreach (array_slice($productLinks, 0, 8) as $pLink) {
-                    $pBody = fetch($pLink);
+                    $pBody = fetch($pLink, 15);
                     if (!$pBody) continue;
 
                     $title = ''; $price = ''; $img = '';
@@ -457,7 +457,7 @@ if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
             'https://www.artguinardo.com/115-pianos-yamaha-de-cola-de-segunda-mano',
         ];
         foreach ($agCategories as $agUrl) {
-            $body = fetch($agUrl);
+            $body = fetch($agUrl, 15);
             if (!$body) continue;
 
             if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {

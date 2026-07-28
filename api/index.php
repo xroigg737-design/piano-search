@@ -176,6 +176,14 @@ function extractYearFromPage(string $html, string $title): array {
 
 function extractSerial(string $text): ?string {
     // "Serial: 1234567", "Nº serie: 1234567", "S/N: 1234567", "serienummer X1234567"
+    // Also handle dot/comma thousands: "serie 5.400.000", "serie 1,317,500"
+    if (preg_match('/(?:serial|serienummer|serie|s\/n|n[ºo°]\s*(?:de\s+)?serie)[:\s]*[a-z]?(\d{1,3}(?:[.,]\d{3}){1,2})/i', $text, $m)) {
+        $num = str_replace(['.', ',', ' '], '', $m[1]);
+        if (strlen($num) >= 5 && strlen($num) <= 7) {
+            $n = (int)$num;
+            if ($n >= 1700 && $n <= 6600000) return $num;
+        }
+    }
     if (preg_match('/(?:serial|serienummer|serie|s\/n|n[ºo°]\s*(?:de\s+)?serie)[:\s]*[a-z]?(\d{5,7})/i', $text, $m)) {
         return trim($m[1]);
     }
@@ -187,6 +195,12 @@ function extractSerial(string $text): ?string {
     if (preg_match('/(?<![.,\d])(\d{7})(?![.,\d])/', $text, $m)) {
         $n = (int)$m[1];
         if ($n >= 1700 && $n <= 6600000) return $m[1];
+    }
+    // Standalone dot-separated numbers that look like serials: "5.400.000", "1.317.500"
+    if (preg_match('/\b(\d{1,2}\.\d{3}\.\d{3})\b/', $text, $m)) {
+        $num = str_replace('.', '', $m[1]);
+        $n = (int)$num;
+        if ($n >= 100000 && $n <= 6600000) return $num;
     }
     return null;
 }
@@ -413,6 +427,10 @@ function crawlPrestashop(array $categoryUrls, ?string $searchUrl, string $storeN
     $found = [];
     $seenLinks = [];
 
+    // Extract model code for quick relevance check
+    $modelClean = mb_strtolower(preg_replace('/\byamaha\b/i', '', $searchModel));
+    $modelQuick = trim(preg_replace('/[\s\-]+/', '', $modelClean));
+
     // Search first (most relevant), then categories
     $allUrls = [];
     if ($searchUrl) $allUrls[] = $searchUrl;
@@ -435,6 +453,25 @@ function crawlPrestashop(array $categoryUrls, ?string $searchUrl, string $storeN
                 $seenLinks[$p['link']] = true;
 
                 $yearInfo = extractYearEx($p['title'], $p['title']);
+                $desc = $descDefault ?: 'segunda mano';
+
+                // If product likely matches our model, fetch its page for year/details
+                $titleLower = mb_strtolower($p['title'] . ' ' . $p['link']);
+                $looksRelevant = str_contains(str_replace(['-',' ','.'], '', $titleLower), $modelQuick);
+                if ($looksRelevant && !$yearInfo['year']) {
+                    $pBody = fetch($p['link'], 8);
+                    if ($pBody) {
+                        $yearInfo = extractYearFromPage($pBody, $p['title']);
+                        $pText = strip_tags($pBody);
+                        $pText = html_entity_decode($pText, ENT_QUOTES, 'UTF-8');
+                        $extraDesc = '';
+                        if (preg_match('/(?:descripci[oó]n|detall|caracter[ií]stic)[^:]*[:]\s*(.{20,200})/si', $pText, $dm)) {
+                            $extraDesc = trim(preg_replace('/\s+/', ' ', $dm[1]));
+                        }
+                        if ($extraDesc) $desc = mb_substr($extraDesc, 0, 150);
+                    }
+                }
+
                 $found[] = [
                     'store'    => $storeName,
                     'location' => $location,
@@ -444,7 +481,7 @@ function crawlPrestashop(array $categoryUrls, ?string $searchUrl, string $storeN
                     'price'    => $p['price'] ?: '-',
                     'link'     => $p['link'],
                     'image'    => $p['img'],
-                    'desc'     => $descDefault ?: 'segunda mano',
+                    'desc'     => $desc,
                 ];
             }
         }

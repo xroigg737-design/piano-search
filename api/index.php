@@ -1076,9 +1076,10 @@ foreach ($ebayDomains as $ebayDomain) {
     try {
         scraper('eBay');
         $q = urlencode($searchModel . ' piano');
-        $body = fetch("https://{$ebayDomain}/sch/i.html?_nkw={$q}&_sacat=180015&LH_BIN=1&_sop=15");
+        $body = fetch("https://{$ebayDomain}/sch/i.html?_nkw={$q}&_sacat=180015&LH_BIN=1&_sop=15", 12);
 
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*s-item\s[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+        if (!$body) { scraperFail('eBay'); continue; }
+        if (preg_match_all('/<li[^>]*class="[^"]*s-item\s[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
             foreach (array_slice($items[1], 1, 10) as $item) {
                 $title = ''; $price = ''; $link = ''; $img = '';
                 if (preg_match('/class="s-item__title"[^>]*>(?:<span[^>]*>)?(.*?)(?:<\/span>)?<\//si', $item, $m)) $title = clean($m[1]);
@@ -1143,6 +1144,9 @@ if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
             $wCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
 
+            if ($wCode >= 400 || !$wBody) {
+                $scrapersRun['Wallapop']['status'] = 'blocked';
+            }
             if ($wCode >= 200 && $wCode < 400 && $wBody) {
                 $json = json_decode($wBody, true);
                 $items = $json['search_objects'] ?? [];

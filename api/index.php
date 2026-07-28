@@ -910,9 +910,11 @@ if (in_array($region, ['espanya', 'europa'])) {
                         $img = $m[1];
                     }
                     if (preg_match('/<bdi>[^<]*&euro;[^<]*<\/span>([\d.,]+)<\/bdi>/si', $item, $m)) {
-                        $price = trim($m[1]) . ' EUR';
+                        $val = (float) str_replace(',', '', trim($m[1]));
+                        $price = number_format($val, 0, ',', '.') . ' EUR';
                     } elseif (preg_match('/&euro;\s*<\/span>\s*([\d.,]+)/si', $item, $m)) {
-                        $price = trim($m[1]) . ' EUR';
+                        $val = (float) str_replace(',', '', trim($m[1]));
+                        $price = number_format($val, 0, ',', '.') . ' EUR';
                     } elseif (preg_match('/amount"[^>]*>([\d.,]+)\s*(?:€|&euro;)/si', $item, $m)) {
                         $price = trim($m[1]) . ' EUR';
                     }

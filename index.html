@@ -816,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v5.0</p>
+    <p class="footer-version">v5.1</p>
 </footer>
 
 <script>
@@ -1458,6 +1458,18 @@ function sortCat(key) {
     renderCatalog();
 }
 
+// Nomenclatura dels pianos de cua segons la llargada (cm)
+function grandSize(d) {
+    if (d <= 130) return 'Mignon';
+    if (d <= 189) return 'Quart de cua';
+    if (d <= 225) return 'Mitja cua';
+    if (d <= 255) return 'Tres quarts de cua';
+    return 'Cua de concert';
+}
+function typeLabel(p) {
+    return p.type === 'Gran Cola' ? grandSize(p.d) : p.type;
+}
+
 function renderCatalog() {
     const filter = (document.getElementById('catFilter').value || '').toLowerCase();
     const typeF = document.getElementById('catType').value;
@@ -1474,7 +1486,7 @@ function renderCatalog() {
         let va, vb;
         switch(catSort.key) {
             case 'model': va=a.model; vb=b.model; break;
-            case 'type': va=a.type; vb=b.type; break;
+            case 'type': va=a.type+String(a.d).padStart(4,'0'); vb=b.type+String(b.d).padStart(4,'0'); break;
             case 'years': va=a.y1; vb=b.y1; break;
             case 'dims': va=a.type==='Gran Cola'?a.d:a.h; vb=b.type==='Gran Cola'?b.d:b.h; break;
             case 'weight': va=a.wt; vb=b.wt; break;
@@ -1493,7 +1505,7 @@ function renderCatalog() {
             : p.h + ' x ' + p.w + ' x ' + p.d + ' cm';
         return `<tr>
             <td class="tm">Yamaha ${p.model}</td>
-            <td>${p.type}</td>
+            <td style="white-space:nowrap">${typeLabel(p)}</td>
             <td>${p.y1}-${p.y2||'avui'}</td>
             <td style="white-space:nowrap;font-size:0.9em;color:rgba(255,255,255,0.5)">${dim}</td>
             <td>${p.wt} kg</td>

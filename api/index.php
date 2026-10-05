@@ -1,26 +1,12 @@
 <?php
+set_time_limit(300);
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
-header('Cache-Control: no-cache, no-store, must-revalidate');
-header('Pragma: no-cache');
-header('Expires: 0');
 
 $model  = trim($_GET['model'] ?? '');
 $region = trim($_GET['region'] ?? 'espanya');
-
-// Jerarquia geografica: catalunya ⊂ espanya ⊂ europa
-// Expandim la regio seleccionada per incloure les sub-regions
-$activeRegions = match($region) {
-    'europa'    => ['europa', 'espanya', 'catalunya'],
-    'espanya'   => ['espanya', 'catalunya'],
-    'catalunya' => ['catalunya'],
-    'japo'      => ['japo'],
-    default     => [$region],
-};
-function regionActive(string $r): bool {
-    global $activeRegions;
-    return in_array($r, $activeRegions);
-}
+$fresh  = !empty($_GET['fresh']);
+$scrapersRun = [];
 
 if ($model === '') {
     die(json_encode(['error' => 'Cal especificar un model', 'results' => []]));
@@ -38,13 +24,34 @@ if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
 $cacheKey  = md5(mb_strtolower($model) . $region);
 $cacheFile = "$cacheDir/$cacheKey.json";
 
-if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 3600) {
-    readfile($cacheFile);
+if (!$fresh && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 3600) {
+    $cached = json_decode(file_get_contents($cacheFile), true);
+    $cached['cached'] = true;
+    $cached['cached_at'] = date('c', filemtime($cacheFile));
+    echo json_encode($cached, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
 
 // ── Helpers ─────────────────────────────────────────────────
-function fetch(string $url, int $timeout = 6): ?string {
+function scraper(string $name): void {
+    global $scrapersRun, $results;
+    $scrapersRun[$name] = ['status' => 'running', 'start' => microtime(true), 'count_before' => count($results)];
+}
+
+function scraperDone(string $name): void {
+    global $scrapersRun, $results;
+    $elapsed = isset($scrapersRun[$name]['start']) ? round(microtime(true) - $scrapersRun[$name]['start'], 1) : 0;
+    $countBefore = $scrapersRun[$name]['count_before'] ?? 0;
+    $scrapersRun[$name] = ['status' => 'ok', 'found' => count($results) - $countBefore, 'time' => $elapsed];
+}
+
+function scraperFail(string $name): void {
+    global $scrapersRun;
+    $elapsed = isset($scrapersRun[$name]['start']) ? round(microtime(true) - $scrapersRun[$name]['start'], 1) : 0;
+    $scrapersRun[$name] = ['status' => 'error', 'time' => $elapsed];
+}
+
+function fetch(string $url, int $timeout = 10): ?string {
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $url,
@@ -66,34 +73,139 @@ function fetch(string $url, int $timeout = 6): ?string {
     return ($code >= 200 && $code < 400 && $body) ? $body : null;
 }
 
+function fetchWithCode(string $url, int $timeout = 10): array {
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 5,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        CURLOPT_HTTPHEADER     => [
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language: ja,en;q=0.9,es;q=0.8',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return ['body' => $body, 'code' => $code];
+}
+
 function clean(string $s): string {
     return trim(preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($s, ENT_QUOTES|ENT_HTML5, 'UTF-8'))));
 }
 
 function extractYear(string $text, string $title = ''): string {
-    if (preg_match('/\b(19[6-9]\d|20[0-2]\d)(?=[^0-9]|$)/', $text, $m)) return $m[1];
-    $serial = extractSerial($text);
-    if ($serial) return serialToYear($serial, $title) ?: '';
-    return '';
+    $r = extractYearEx($text, $title);
+    return $r['year'];
 }
 
-function extractYearFromPage(string $html, string $title): string {
-    $text = strip_tags($html);
-    $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+function extractYearEx(string $text, string $title = ''): array {
+    // 1) Explicit year near keywords → exact
+    if (preg_match('/(?:año|any|fabricaci|built|baujahr|bouwjaar|from|de)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
+    }
+    // 2) Year in parentheses like "(1995)" or "(2007)" → exact
+    if (preg_match('/\(\s*(19[6-9]\d|20[0-2]\d)\s*\)/', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
+    }
+    // 3) Serial number → serial
     $serial = extractSerial($text);
     if ($serial) {
         $year = serialToYear($serial, $title);
-        if ($year) return $year;
+        if ($year) return ['year' => $year, 'confidence' => 'serial'];
     }
-    // Look for year near piano-related keywords only
-    if (preg_match('/(?:año|fabricaci|built|baujahr|bouwjaar)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
-        return $m[1];
+    // 4) Standalone year (less certain without context keyword) → exact but weaker
+    if (preg_match('/\b(19[6-9]\d|20[0-2]\d)(?=[^0-9]|$)/', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
     }
-    return '';
+    // 5) Partial serial prefix like "nº 632..." or "serie 5xx" → estimated
+    if (preg_match('/(?:serial|serie|s\/n|n[ºo°])\s*:?\s*[a-z]?(\d{3,4})/i', $text, $m)) {
+        $prefix = $m[1];
+        $estYear = estimateYearFromPrefix($prefix, $title);
+        if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
+    }
+    // 6) Textual serial range: "superior a X millones", "mayor de X millones", "above X million"
+    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als|encima|por\s+encima)\s+(?:a|de|que|than|los)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
+        $millions = (int) $m[1];
+        $prefix = $millions * 1000;
+        $estYear = estimateYearFromPrefix((string) $prefix, $title);
+        if ($estYear) return ['year' => '>' . $estYear, 'confidence' => 'estimated'];
+    }
+    return ['year' => '', 'confidence' => ''];
+}
+
+function estimateYearFromPrefix(string $prefix, string $title = ''): ?string {
+    $n = (int) $prefix;
+    $isGrand = (bool) preg_match('/\b[CGS]\d/i', $title);
+    // Map 3-4 digit prefixes to approximate Hamamatsu years
+    $milestones = [
+        124 => 1960, 149 => 1961, 188 => 1962, 237 => 1963, 298 => 1964,
+        368 => 1965, 489 => 1966, 570 => 1967, 685 => 1968, 805 => 1969,
+        960 => 1970, 1130 => 1971, 1317 => 1972, 1510 => 1973, 1745 => 1974,
+        1945 => 1975, 2154 => 1976, 2384 => 1977, 2585 => 1978, 2810 => 1979,
+        3001 => 1980, 3261 => 1981, 3465 => 1982, 3646 => 1983, 3832 => 1984,
+        3987 => 1985, 4156 => 1986, 4334 => 1987, 4491 => 1988, 4672 => 1989,
+        4837 => 1990, 4967 => 1991, 5086 => 1992, 5204 => 1993, 5296 => 1994,
+        5375 => 1995, 5446 => 1996, 5530 => 1997, 5579 => 1998, 5792 => 1999,
+        5860 => 2000, 5920 => 2001, 5970 => 2002, 6020 => 2003, 6060 => 2004,
+        6100 => 2005, 6145 => 2006, 6191 => 2007, 6220 => 2008, 6250 => 2009,
+        6280 => 2010, 6310 => 2011, 6340 => 2012, 6360 => 2013, 6380 => 2014,
+        6400 => 2015, 6420 => 2016, 6440 => 2017, 6460 => 2018, 6480 => 2019,
+        6500 => 2020, 6520 => 2021,
+    ];
+    // If 3 digits, it's thousands (e.g., "632" = 6320000 range → ~2012)
+    if (strlen($prefix) === 3) $n *= 10;
+    $result = null;
+    foreach ($milestones as $start => $year) {
+        if ($n >= $start) $result = (string) $year;
+        else break;
+    }
+    return $result;
+}
+
+function extractYearFromPage(string $html, string $title): array {
+    $text = strip_tags($html);
+    $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+    // 1) Serial number → serial
+    $serial = extractSerial($text);
+    if ($serial) {
+        $year = serialToYear($serial, $title);
+        if ($year) return ['year' => $year, 'confidence' => 'serial'];
+    }
+    // 2) Year near keywords → exact
+    if (preg_match('/(?:año|any|fabricaci|built|baujahr|bouwjaar)\s*:?\s*(19[6-9]\d|20[0-2]\d)/i', $text, $m)) {
+        return ['year' => $m[1], 'confidence' => 'exact'];
+    }
+    // 3) Partial serial prefix → estimated
+    if (preg_match('/(?:serial|serie|s\/n|n[ºo°])\s*:?\s*[a-z]?(\d{3,4})/i', $text, $m)) {
+        $estYear = estimateYearFromPrefix($m[1], $title);
+        if ($estYear) return ['year' => $estYear, 'confidence' => 'estimated'];
+    }
+    // 4) Textual serial range: "superior a X millones", "mayor de X millones"
+    if (preg_match('/(?:superior|mayor|m[aá]s|above|over|mehr\s+als|encima|por\s+encima)\s+(?:a|de|que|than|los)?\s*(\d+)\s*(?:mill|mili)/i', $text, $m)) {
+        $millions = (int) $m[1];
+        $prefix = $millions * 1000;
+        $estYear = estimateYearFromPrefix((string) $prefix, $title);
+        if ($estYear) return ['year' => '>' . $estYear, 'confidence' => 'estimated'];
+    }
+    return ['year' => '', 'confidence' => ''];
 }
 
 function extractSerial(string $text): ?string {
     // "Serial: 1234567", "Nº serie: 1234567", "S/N: 1234567", "serienummer X1234567"
+    // Also handle dot/comma thousands: "serie 5.400.000", "serie 1,317,500"
+    if (preg_match('/(?:serial|serienummer|serie|s\/n|n[ºo°]\s*(?:de\s+)?serie)[:\s]*[a-z]?(\d{1,3}(?:[.,]\d{3}){1,2})/i', $text, $m)) {
+        $num = str_replace(['.', ',', ' '], '', $m[1]);
+        if (strlen($num) >= 5 && strlen($num) <= 7) {
+            $n = (int)$num;
+            if ($n >= 1700 && $n <= 6600000) return $num;
+        }
+    }
     if (preg_match('/(?:serial|serienummer|serie|s\/n|n[ºo°]\s*(?:de\s+)?serie)[:\s]*[a-z]?(\d{5,7})/i', $text, $m)) {
         return trim($m[1]);
     }
@@ -105,6 +217,12 @@ function extractSerial(string $text): ?string {
     if (preg_match('/(?<![.,\d])(\d{7})(?![.,\d])/', $text, $m)) {
         $n = (int)$m[1];
         if ($n >= 1700 && $n <= 6600000) return $m[1];
+    }
+    // Standalone dot-separated numbers that look like serials: "5.400.000", "1.317.500"
+    if (preg_match('/\b(\d{1,2}\.\d{3}\.\d{3})\b/', $text, $m)) {
+        $num = str_replace('.', '', $m[1]);
+        $n = (int)$num;
+        if ($n >= 100000 && $n <= 6600000) return $num;
     }
     return null;
 }
@@ -247,18 +365,10 @@ function classifyCondition(string $title, string $link, string $store, string $d
         if (str_contains($text, $kw)) return '2a_ma';
     }
     // Marketplaces are second-hand by default
-    $mpStores = ['Wallapop','Kleinanzeigen','Marktplaats','eBay','Leboncoin'];
+    $mpStores = ['Wallapop','Kleinanzeigen','Marktplaats','eBay','Leboncoin','PianoMart','2dehands.be','2ememain.be','Yahoo Auctions JP','OLX.pl'];
     if (in_array($store, $mpStores)) return '2a_ma';
     // Specialist second-hand stores
-    $usedStores = ['Art Guinardo','Pianos Low Cost','La Casa dels Pianos','Pianos Can Puig','Sinergia Music','Jorquera Pianos','Pirineus Musical',
-                    'Bol Pianos','Instrumentum','EML Pianos','Hanlet','Pianos Schaeffer','Piano Fischer',
-                    'Markson Pianos','Sherwood Phoenix','Nebout & Hamm','Marangi','Pianissimo','Casa Hazen',
-                    "Piano's Maene",'Grand Gallery','Piano Plaza','Japan Piano Service',
-                    'Hinves Pianos','Musical Princesa','Royal Pianos','Piano Importa',
-                    'Rincon Musical','Musicasa','Polimusica','Musical Leones',
-                    'Klavierhaus Langer','Piano.art','Anamorphose','2dehands.be',
-                    'Piano Chollo','Klavier','Klavier Kreisel','Klavierhalle','Besbrode Pianos',
-                    'PIANOZ','Pianoshop.fr','Quatre Mains','KlavierLoft','Scorticati','Bontempi','Klaviano'];
+    $usedStores = ['Art Guinardo','Pianos Low Cost','La Casa dels Pianos','Pianos Can Puig','Sinergia Music','Jorquera Pianos','Japan Used Piano','Shimamura'];
     if (in_array($store, $usedStores)) return '2a_ma';
     return 'desconegut';
 }
@@ -292,22 +402,132 @@ function extractPrestashopPrice(string $itemHtml): string {
     return '';
 }
 
+// Helper: extract products from a PrestaShop page (category or search results)
+function scrapePrestashopProducts(string $body): array {
+    $found = [];
+    // Strategy 1: standard PrestaShop product-miniature articles
+    if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
+        foreach ($items[1] as $item) {
+            $title = ''; $price = ''; $link = ''; $img = '';
+            if (preg_match('/<h[234][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
+                $link = $m[1];
+                $title = clean($m[2]);
+            }
+            $price = extractPrestashopPrice($item);
+            if (preg_match('/<img[^>]+(?:data-full-size-image-url|data-src|src)="([^"]+)"/i', $item, $m)) {
+                $img = $m[1];
+            }
+            if ($title && $link) {
+                $found[] = ['title' => $title, 'price' => $price, 'link' => $link, 'img' => $img];
+            }
+        }
+    }
+    // Strategy 2: fallback for newer themes with product-card or product_card divs
+    if (empty($found) && preg_match_all('/<div[^>]*class="[^"]*product[-_]card[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/si', $body, $items)) {
+        foreach ($items[1] as $item) {
+            $title = ''; $price = ''; $link = ''; $img = '';
+            if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
+                $link = $m[1];
+                $title = clean($m[2]);
+            }
+            if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
+                $price = trim($m[1]) . ' EUR';
+            }
+            if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
+                $img = $m[1];
+            }
+            if ($title && $link && strlen($title) > 3) {
+                $found[] = ['title' => $title, 'price' => $price, 'link' => $link, 'img' => $img];
+            }
+        }
+    }
+    return $found;
+}
+
+// Helper: crawl PrestaShop pages (category + search) with pagination
+function crawlPrestashop(array $categoryUrls, ?string $searchUrl, string $storeName, string $location, string $searchModel, string $descDefault = ''): array {
+    $found = [];
+    $seenLinks = [];
+
+    // Extract model code for quick relevance check
+    $modelClean = mb_strtolower(preg_replace('/\byamaha\b/i', '', $searchModel));
+    $modelQuick = trim(preg_replace('/[\s\-]+/', '', $modelClean));
+
+    // Search first (most relevant), then categories
+    $allUrls = [];
+    if ($searchUrl) $allUrls[] = $searchUrl;
+    foreach ($categoryUrls as $cu) $allUrls[] = $cu;
+
+    foreach ($allUrls as $baseUrl) {
+        for ($page = 1; $page <= 2; $page++) {
+            $url = $baseUrl;
+            if ($page > 1) {
+                $url .= (strpos($baseUrl, '?') !== false ? '&' : '?') . 'page=' . $page;
+            }
+            $body = fetch($url, 12);
+            if (!$body) break;
+
+            $products = scrapePrestashopProducts($body);
+            if (empty($products)) break;
+
+            foreach ($products as $p) {
+                if (isset($seenLinks[$p['link']])) continue;
+                $seenLinks[$p['link']] = true;
+
+                $yearInfo = extractYearEx($p['title'], $p['title']);
+                $desc = $descDefault ?: 'segunda mano';
+
+                // If product likely matches our model, fetch its page for year/details
+                $titleLower = mb_strtolower($p['title'] . ' ' . $p['link']);
+                $looksRelevant = str_contains(str_replace(['-',' ','.'], '', $titleLower), $modelQuick);
+                if ($looksRelevant && !$yearInfo['year']) {
+                    $pBody = fetch($p['link'], 8);
+                    if ($pBody) {
+                        $yearInfo = extractYearFromPage($pBody, $p['title']);
+                        $pText = strip_tags($pBody);
+                        $pText = html_entity_decode($pText, ENT_QUOTES, 'UTF-8');
+                        $extraDesc = '';
+                        if (preg_match('/(?:descripci[oó]n|detall|caracter[ií]stic)[^:]*[:]\s*(.{20,200})/si', $pText, $dm)) {
+                            $extraDesc = trim(preg_replace('/\s+/', ' ', $dm[1]));
+                        }
+                        if ($extraDesc) $desc = mb_substr($extraDesc, 0, 150);
+                    }
+                }
+
+                $found[] = [
+                    'store'    => $storeName,
+                    'location' => $location,
+                    'title'    => $p['title'],
+                    'year'     => $yearInfo['year'],
+                    'year_confidence' => $yearInfo['confidence'],
+                    'price'    => $p['price'] ?: '-',
+                    'link'     => $p['link'],
+                    'image'    => $p['img'],
+                    'desc'     => $desc,
+                ];
+            }
+        }
+    }
+    return $found;
+}
+
 $results = [];
 
 // ══════════════════════════════════════════════════════════════
 // 1) LA CASA DELS PIANOS (Barcelona) - WordPress search
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('La Casa dels Pianos');
         $q = urlencode($searchModel);
-        $body = fetch("https://lacasadelspianos.com/es/?s={$q}");
+        $body = fetch("https://lacasadelspianos.com/es/?s={$q}", 15);
 
         if ($body) {
             // Find product links in search results
             if (preg_match_all('/href="(https?:\/\/lacasadelspianos\.com\/es\/pianos-item\/[^"]+)"/i', $body, $links)) {
                 $productLinks = array_unique($links[1]);
-                foreach (array_slice($productLinks, 0, 8) as $pLink) {
-                    $pBody = fetch($pLink);
+                foreach (array_slice($productLinks, 0, 6) as $pLink) {
+                    $pBody = fetch($pLink, 10);
                     if (!$pBody) continue;
 
                     $title = ''; $price = ''; $img = '';
@@ -349,13 +569,14 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                     }
 
                     if ($title) {
-                        $year = extractYear($title . ' ' . $desc, $title);
-                        if (!$year) $year = extractYearFromPage($pBody, $title);
+                        $yearInfo = extractYearEx($title . ' ' . $desc, $title);
+                        if (!$yearInfo['year']) $yearInfo = extractYearFromPage($pBody, $title);
                         $results[] = [
                             'store'    => 'La Casa dels Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => $year,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: '-',
                             'link'     => $pLink,
                             'image'    => $img,
@@ -365,183 +586,93 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('La Casa dels Pianos');
+    } catch (\Throwable $e) { scraperFail('La Casa dels Pianos');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 2) ART GUINARDO (Barcelona) - Crawl 2a mà category pages
+// 2) ART GUINARDO (Barcelona) - Search + category pages
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
-        $agCategories = [
+        scraper('Art Guinardo');
+        $q = urlencode($searchModel);
+        $searchUrl = "https://www.artguinardo.com/busqueda?s={$q}";
+        $categories = [
             'https://www.artguinardo.com/112-pianos-yamaha-verticales-segunda-mano',
             'https://www.artguinardo.com/115-pianos-yamaha-de-cola-de-segunda-mano',
         ];
-        foreach ($agCategories as $agUrl) {
-            $body = fetch($agUrl);
-            if (!$body) continue;
-
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1];
-                        $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-
-                    if ($title && $link) {
-                        $year = extractYear($title, $title);
-                        $desc = 'segunda mano';
-                        if (!$year) {
-                            $pBody = fetch($link, 10);
-                            if ($pBody) {
-                                $year = extractYearFromPage($pBody, $title);
-                            }
-                        }
-                        $results[] = [
-                            'store'    => 'Art Guinardo',
-                            'location' => 'Barcelona, Catalunya',
-                            'title'    => $title,
-                            'year'     => $year,
-                            'price'    => $price ?: '-',
-                            'link'     => $link,
-                            'image'    => $img,
-                            'desc'     => $desc ?: 'segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
+        $found = crawlPrestashop($categories, $searchUrl, 'Art Guinardo', 'Barcelona, Catalunya', $searchModel, 'segunda mano');
+        array_push($results, ...$found);
+        scraperDone('Art Guinardo');
+    } catch (\Throwable $e) { scraperFail('Art Guinardo');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 3) AUDENIS (Barcelona) - Crawl ocasió category
+// 3) AUDENIS (Barcelona) - Search + category pages
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
-        $body = fetch("https://audenisbcn.com/es/317-piano-ocasion");
-
-        if ($body) {
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1];
-                        $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-
-                    if ($title && $link) {
-                        $year = extractYear($title, $title);
-                        if (!$year) {
-                            $pBody = fetch($link, 10);
-                            if ($pBody) $year = extractYearFromPage($pBody, $title);
-                        }
-                        $results[] = [
-                            'store'    => 'Audenis',
-                            'location' => 'Barcelona, Catalunya',
-                            'title'    => $title,
-                            'year'     => $year,
-                            'price'    => $price ?: '-',
-                            'link'     => $link,
-                            'image'    => $img,
-                            'desc'     => 'ocasion',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
+        scraper('Audenis');
+        $q = urlencode($searchModel);
+        $searchUrl = "https://audenisbcn.com/es/busqueda?s={$q}";
+        $categories = [
+            'https://audenisbcn.com/es/317-piano-ocasion',
+        ];
+        $found = crawlPrestashop($categories, $searchUrl, 'Audenis', 'Barcelona, Catalunya', $searchModel, 'ocasion');
+        array_push($results, ...$found);
+        scraperDone('Audenis');
+    } catch (\Throwable $e) { scraperFail('Audenis');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 4) PIANOS LOW COST (Madrid) - Crawl renovados/ocasion categories
+// 4) PIANOS LOW COST (Madrid) - Search + category pages
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
+if (in_array($region, ['espanya', 'europa'])) {
     try {
-        $plcCategories = [
-            'https://www.pianoslowcost.es/buscar?controller=search&s=' . urlencode($searchModel),
+        scraper('Pianos Low Cost');
+        $q = urlencode($searchModel);
+        $searchUrl = "https://www.pianoslowcost.es/busqueda?s={$q}";
+        $categories = [
             'https://www.pianoslowcost.es/7-pianos-verticales-renovados',
             'https://www.pianoslowcost.es/11-pianos-cola-renovados',
             'https://www.pianoslowcost.es/8-pianos-de-ocasion-revisados',
             'https://www.pianoslowcost.es/10-pianos-de-ocasion-revisados',
         ];
-        foreach ($plcCategories as $plcUrl) {
-            $body = fetch($plcUrl);
-            if (!$body) continue;
-
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1];
-                        $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-
-                    if ($title && $link) {
-                        $year = extractYear($title, $title);
-                        if (!$year) {
-                            $pBody = fetch($link, 10);
-                            if ($pBody) $year = extractYearFromPage($pBody, $title);
-                        }
-                        $results[] = [
-                            'store'    => 'Pianos Low Cost',
-                            'location' => 'Madrid, Espanya',
-                            'title'    => $title,
-                            'year'     => $year,
-                            'price'    => $price ?: '-',
-                            'link'     => $link,
-                            'image'    => $img,
-                            'desc'     => 'renovado ocasion',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
+        $found = crawlPrestashop($categories, $searchUrl, 'Pianos Low Cost', 'Madrid, Espanya', $searchModel, 'renovado ocasion');
+        array_push($results, ...$found);
+        scraperDone('Pianos Low Cost');
+    } catch (\Throwable $e) { scraperFail('Pianos Low Cost');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 5) CORRALES PIANOS (Barcelona) - Crawl category pages
+// 5) CORRALES PIANOS (Barcelona) - WordPress search + category
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
-        $categories = [
-            'https://www.corralespianos.com/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://www.corralespianos.com/pianos-de-ocasion/',
-        ];
-        $modelSlug = strtolower(str_replace([' ', '/'], ['-', '-'], $model));
+        scraper('Corrales Pianos');
+        $cpSeen = [];
 
-        foreach ($categories as $catUrl) {
-            $body = fetch($catUrl);
-            if (!$body) continue;
-
-            // Find product links that might match
-            if (preg_match_all('/href="(https?:\/\/www\.corralespianos\.com\/[^"]*' . preg_quote($modelSlug, '/') . '[^"]*)"/i', $body, $links)) {
-                foreach (array_unique($links[1]) as $pLink) {
-                    $pBody = fetch($pLink);
+        // WordPress search
+        $q = urlencode($searchModel);
+        $searchBody = fetch("https://www.corralespianos.com/?s={$q}", 15);
+        if ($searchBody) {
+            if (preg_match_all('/href="(https?:\/\/www\.corralespianos\.com\/[^"]*pianos?[^"]*)"/i', $searchBody, $links)) {
+                foreach (array_slice(array_unique($links[1]), 0, 6) as $pLink) {
+                    if (isset($cpSeen[$pLink])) continue;
+                    $cpSeen[$pLink] = true;
+                    $pBody = fetch($pLink, 10);
                     if (!$pBody) continue;
 
                     $title = ''; $price = ''; $img = '';
-                    if (preg_match('/<h[12][^>]*>(.*?)<\/h[12]>/si', $pBody, $m)) {
+                    if (preg_match('/<h[12][^>]*class="[^"]*entry-title[^"]*"[^>]*>(.*?)<\/h[12]>/si', $pBody, $m)) {
                         $title = clean($m[1]);
                     }
-                    if (preg_match('/(?:A partir de|Precio|PVP)[:\s]*([\d.,]+)\s*(?:€|EUR)/i', $pBody, $m)) {
+                    if (!$title && preg_match('/<h[12][^>]*>(.*?)<\/h[12]>/si', $pBody, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/(?:A partir de|Precio|PVP|Preu)[:\s]*([\d.,]+)\s*(?:€|EUR)/i', $pBody, $m)) {
                         $price = trim($m[1]) . ' EUR';
                     }
                     if (preg_match_all('/<img[^>]+src="(https?:\/\/www\.corralespianos\.com\/wp-content\/uploads\/[^"]+)"/i', $pBody, $imgs)) {
@@ -555,37 +686,90 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                     }
 
                     if ($title) {
+                        $yearInfo = extractYearEx($title, $title);
                         $results[] = [
                             'store'    => 'Corrales Pianos',
                             'location' => 'Barcelona, Catalunya',
                             'title'    => $title,
-                            'year'     => extractYear($title, $title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
                             'price'    => $price ?: 'Consultar',
                             'link'     => $pLink,
                             'image'    => $img,
-                            'desc'     => '',
+                            'desc'     => 'ocasion',
                         ];
                     }
                 }
             }
         }
-    } catch (\Throwable $e) {}
+
+        // Also crawl category page
+        $catBody = fetch("https://www.corralespianos.com/pianos-de-ocasion/", 15);
+        if ($catBody) {
+            if (preg_match_all('/href="(https?:\/\/www\.corralespianos\.com\/[^"]+)"/i', $catBody, $links)) {
+                $catLinks = 0;
+                foreach (array_unique($links[1]) as $pLink) {
+                    if ($catLinks >= 6) break;
+                    if (isset($cpSeen[$pLink]) || str_contains($pLink, '#') || str_contains($pLink, 'wp-content')) continue;
+                    if (!preg_match('/piano/i', $pLink)) continue;
+                    $cpSeen[$pLink] = true;
+                    $catLinks++;
+                    $pBody = fetch($pLink, 8);
+                    if (!$pBody) continue;
+
+                    $title = ''; $price = ''; $img = '';
+                    if (preg_match('/<h[12][^>]*>(.*?)<\/h[12]>/si', $pBody, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/(?:A partir de|Precio|PVP|Preu)[:\s]*([\d.,]+)\s*(?:€|EUR)/i', $pBody, $m)) {
+                        $price = trim($m[1]) . ' EUR';
+                    }
+                    if (preg_match_all('/<img[^>]+src="(https?:\/\/www\.corralespianos\.com\/wp-content\/uploads\/[^"]+)"/i', $pBody, $imgs)) {
+                        foreach ($imgs[1] as $imgCandidate) {
+                            if (!str_contains(strtolower($imgCandidate), 'logo')) { $img = $imgCandidate; break; }
+                        }
+                        if (!$img) $img = $imgs[1][0];
+                    }
+
+                    if ($title) {
+                        $yearInfo = extractYearEx($title, $title);
+                        $results[] = [
+                            'store'    => 'Corrales Pianos',
+                            'location' => 'Barcelona, Catalunya',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ?: 'Consultar',
+                            'link'     => $pLink,
+                            'image'    => $img,
+                            'desc'     => 'ocasion',
+                        ];
+                    }
+                }
+            }
+        }
+
+        scraperDone('Corrales Pianos');
+    } catch (\Throwable $e) { scraperFail('Corrales Pianos');}
 }
 
 // ══════════════════════════════════════════════════════════════
 // 6) PIANOS CAN PUIG (Mataró) - Shopify JSON API
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Pianos Can Puig');
         $cpCollections = [
+            'https://pianoscanpuig.com/search/suggest.json?q=' . urlencode($searchModel) . '&resources[type]=product',
             'https://pianoscanpuig.com/collections/pianos-de-ocasion/products.json',
             'https://pianoscanpuig.com/collections/pianos-de-re-estreno/products.json',
         ];
+        $cpSeenHandles = [];
         foreach ($cpCollections as $cpUrl) {
             $body = fetch($cpUrl);
             if (!$body) continue;
             $json = json_decode($body, true);
-            $products = $json['products'] ?? [];
+            $products = $json['products'] ?? $json['resources']['results']['products'] ?? [];
             foreach ($products as $p) {
                 $title = $p['title'] ?? '';
                 $price = '';
@@ -599,11 +783,13 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                 $desc = mb_substr(strip_tags($p['body_html'] ?? ''), 0, 150);
 
                 if ($title && $link) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => 'Pianos Can Puig',
                         'location' => 'Mataro, Catalunya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -612,82 +798,85 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('Pianos Can Puig');
+    } catch (\Throwable $e) { scraperFail('Pianos Can Puig');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 7) SINERGIA MUSIC (Mataró) - PrestaShop category crawl
+// 7) SINERGIA MUSIC (Mataró) - Search + category pages
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
-        $body = fetch("https://sinergiamusic.es/392-piano-segunda-mano");
+        scraper('Sinergia Music');
+        $q = urlencode($searchModel);
+        $searchUrl = "https://sinergiamusic.es/busqueda?s={$q}";
+        $categories = [
+            'https://sinergiamusic.es/392-piano-segunda-mano',
+        ];
+        $found = crawlPrestashop($categories, $searchUrl, 'Sinergia Music', 'Mataro, Catalunya', $searchModel, 'segunda mano ocasion');
 
-        if ($body) {
-            // Extract product blocks: link + title + price
-            if (preg_match_all('/href="(https:\/\/sinergiamusic\.es\/[^"]*\.html)"[^>]*>\s*<img[^>]*>/si', $body, $links, PREG_SET_ORDER)) {
-                $seenLinks = [];
-                foreach ($links as $lm) {
-                    $pLink = $lm[1];
-                    if (isset($seenLinks[$pLink])) continue;
-                    $seenLinks[$pLink] = true;
-                }
-                // Also try structured extraction
-            }
+        // Fallback: try legacy title-based extraction if Prestashop helper found nothing
+        if (empty($found)) {
+            $smSeen = [];
+            foreach ([$categories[0]] as $smUrl) {
+                $body = fetch($smUrl, 12);
+                if (!$body) continue;
+                if (preg_match_all('/<a[^>]+href="(https:\/\/sinergiamusic\.es\/[^"]*\.html)"[^>]+title="([^"]+)"/si', $body, $pms, PREG_SET_ORDER)) {
+                    foreach ($pms as $pm) {
+                        $pLink = $pm[1];
+                        $title = clean($pm[2]);
+                        if (isset($smSeen[$pLink]) || !$title) continue;
+                        $smSeen[$pLink] = true;
 
-            // Extract titles from product links
-            if (preg_match_all('/<a[^>]+href="(https:\/\/sinergiamusic\.es\/[^"]*\.html)"[^>]+title="([^"]+)"/si', $body, $pms, PREG_SET_ORDER)) {
-                $seenSM = [];
-                foreach ($pms as $pm) {
-                    $pLink = $pm[1];
-                    $title = clean($pm[2]);
-                    if (isset($seenSM[$pLink]) || !$title) continue;
-                    $seenSM[$pLink] = true;
-
-                    // Find price near this product
-                    $price = '';
-                    $pos = strpos($body, $pLink);
-                    if ($pos !== false) {
-                        $chunk = substr($body, $pos, 2000);
-                        if (preg_match('/class="price product-price">([\d\s.,]+)\s*€/i', $chunk, $pm2)) {
-                            $priceVal = str_replace(' ', '', trim($pm2[1]));
-                            $price = $priceVal . ' EUR';
+                        $price = '';
+                        $pos = strpos($body, $pLink);
+                        if ($pos !== false) {
+                            $chunk = substr($body, $pos, 2000);
+                            if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $chunk, $pm2)) {
+                                $price = trim($pm2[1]) . ' EUR';
+                            }
                         }
-                    }
-                    // Image
-                    $img = '';
-                    if (preg_match('/href="' . preg_quote($pLink, '/') . '"[^>]*>\s*<img[^>]+src="([^"]+)"/si', $body, $im)) {
-                        $img = $im[1];
-                    }
+                        $img = '';
+                        if (preg_match('/href="' . preg_quote($pLink, '/') . '"[^>]*>\s*<img[^>]+(?:data-src|src)="([^"]+)"/si', $body, $im)) {
+                            $img = $im[1];
+                        }
 
-                    if ($title) {
-                        $results[] = [
-                            'store'    => 'Sinergia Music',
-                            'location' => 'Mataro, Catalunya',
-                            'title'    => $title,
-                            'year'     => extractYear($title, $title),
-                            'price'    => $price ?: '-',
-                            'link'     => $pLink,
-                            'image'    => $img,
-                            'desc'     => 'segunda mano ocasion',
-                        ];
+                        if ($title) {
+                            $yearInfo = extractYearEx($title, $title);
+                            $found[] = [
+                                'store'    => 'Sinergia Music',
+                                'location' => 'Mataro, Catalunya',
+                                'title'    => $title,
+                                'year'     => $yearInfo['year'],
+                                'year_confidence' => $yearInfo['confidence'],
+                                'price'    => $price ?: '-',
+                                'link'     => $pLink,
+                                'image'    => $img,
+                                'desc'     => 'segunda mano ocasion',
+                            ];
+                        }
                     }
                 }
             }
         }
-    } catch (\Throwable $e) {}
+        array_push($results, ...$found);
+        scraperDone('Sinergia Music');
+    } catch (\Throwable $e) { scraperFail('Sinergia Music');}
 }
 
 // ══════════════════════════════════════════════════════════════
 // 8) JORQUERA PIANOS (Barcelona) - WordPress text parsing
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
+if (in_array($region, ['catalunya', 'espanya', 'europa'])) {
     try {
+        scraper('Jorquera Pianos');
         $jqPages = [
             'https://jorquerapianos.com/comprar-piano-de-reestreno/pianos-verticales-de-segunda-mano/',
             'https://jorquerapianos.com/comprar-piano-de-reestreno/pianos-de-cola-de-segunda-mano/',
         ];
         foreach ($jqPages as $jqUrl) {
-            $body = fetch($jqUrl, 8);
+            $body = fetch($jqUrl, 20);
             if (!$body) continue;
 
             $text = strip_tags($body);
@@ -708,12 +897,13 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                     if (preg_match('/Precio[:\s]*([\d.,]+)\s*€/i', $chunk, $pm)) {
                         $price = trim($pm[1]) . ' EUR';
                     }
-                    $year = extractYear($chunk, 'Yamaha ' . $jqModel);
+                    $yearInfo = extractYearEx($chunk, 'Yamaha ' . $jqModel);
                     $results[] = [
                         'store'    => 'Jorquera Pianos',
                         'location' => 'Barcelona, Catalunya',
                         'title'    => 'Yamaha ' . $jqModel,
-                        'year'     => $year,
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: 'Consultar',
                         'link'     => $jqUrl,
                         'image'    => '',
@@ -722,15 +912,18 @@ if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa'])))
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('Jorquera Pianos');
+    } catch (\Throwable $e) { scraperFail('Jorquera Pianos');}
 }
 
 // ══════════════════════════════════════════════════════════════
 // 9) KLEINANZEIGEN.DE (Alemanya) - JSON-LD
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
+if (in_array($region, ['europa'])) {
     try {
-        $q = urlencode($searchModel . ' piano');
+        scraper('Kleinanzeigen');
+        $q = urlencode($searchModel);
         $body = fetch("https://www.kleinanzeigen.de/s-musikinstrumente/{$q}/k0c74");
 
         if ($body && preg_match_all('/class="aditem\b[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
@@ -756,11 +949,13 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
                 }
 
                 if ($title && $link) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => 'Kleinanzeigen',
                         'location' => ($loc ?: 'Alemanya') . ', Alemanya',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $price ?: '-',
                         'link'     => $link,
                         'image'    => $img,
@@ -769,14 +964,17 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('Kleinanzeigen');
+    } catch (\Throwable $e) { scraperFail('Kleinanzeigen');}
 }
 
 // ══════════════════════════════════════════════════════════════
 // 10) MARKTPLAATS.NL (Holanda) - __NEXT_DATA__
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
+if (in_array($region, ['europa'])) {
     try {
+        scraper('Marktplaats');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.marktplaats.nl/q/{$q}/");
 
@@ -789,19 +987,21 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
                 $priceCents = $l['priceInfo']['priceCents'] ?? 0;
                 $priceType  = $l['priceInfo']['priceType'] ?? '';
                 $city       = $l['location']['cityName'] ?? '';
-                $slug       = $l['itemId'] ?? '';
+                $vipUrl     = $l['vipUrl'] ?? '';
                 $img        = $l['imageUrls'][0] ?? '';
                 $desc       = $l['description'] ?? '';
 
                 $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
-                $linkUrl  = $slug ? "https://www.marktplaats.nl/v/detail/{$slug}" : '';
+                $linkUrl  = $vipUrl ? "https://www.marktplaats.nl{$vipUrl}" : '';
 
                 if ($title && $linkUrl) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => 'Marktplaats',
                         'location' => ($city ?: 'Holanda') . ', Holanda',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $priceStr,
                         'link'     => $linkUrl,
                         'image'    => $img,
@@ -810,974 +1010,17 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('Marktplaats');
+    } catch (\Throwable $e) { scraperFail('Marktplaats');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 11) EBAY (.es i .de)
+// 10b) 2DEHANDS.BE (Bèlgica) - __NEXT_DATA__ (same platform as Marktplaats)
 // ══════════════════════════════════════════════════════════════
-$ebayDomains = [];
-if (!empty(array_intersect($activeRegions, ['espanya', 'catalunya']))) $ebayDomains[] = 'www.ebay.es';
-if (regionActive('europa')) $ebayDomains[] = 'www.ebay.de';
-$ebayDomains = array_unique($ebayDomains);
-
-foreach ($ebayDomains as $ebayDomain) {
+if (in_array($region, ['europa'])) {
     try {
-        $q = urlencode($searchModel . ' piano');
-        $body = fetch("https://{$ebayDomain}/sch/i.html?_nkw={$q}&_sacat=180015&LH_BIN=1&_sop=15");
-
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*s-item\s[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 1, 10) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/class="s-item__title"[^>]*>(?:<span[^>]*>)?(.*?)(?:<\/span>)?<\//si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/class="s-item__price"[^>]*>(.*?)<\/span>/si', $item, $m)) $price = clean($m[1]);
-                if (preg_match('/href="(https?:\/\/www\.ebay\.[^"]*)"/', $item, $m)) $link = strtok($m[1], '?');
-                if (preg_match('/<img[^>]*src="(https?:\/\/i\.ebayimg[^"]*)"/', $item, $m)) $img = $m[1];
-
-                if ($title && mb_strlen($title) > 5 && !str_contains(strtolower($title), 'shop on ebay')) {
-                    $country = str_contains($ebayDomain, '.de') ? 'Alemanya' : 'Espanya';
-                    $results[] = [
-                        'store'    => 'eBay',
-                        'location' => $country,
-                        'title'    => $title,
-                        'year'     => extractYear($title, $title),
-                        'price'    => $price ?: '-',
-                        'link'     => $link,
-                        'image'    => $img,
-                        'desc'     => '',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 12) WALLAPOP (Espanya) - API JSON
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'catalunya']))) {
-    try {
-        $q = urlencode($searchModel . ' piano');
-        $lat = $region === 'catalunya' ? '41.3851' : '40.4168';
-        $lon = $region === 'catalunya' ? '2.1734' : '-3.7038';
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => "https://api.wallapop.com/api/v3/general/search?keywords={$q}&latitude={$lat}&longitude={$lon}&filters_source=default_filters&order_by=newest",
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT        => 12,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_ENCODING       => '',
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-            CURLOPT_HTTPHEADER     => [
-                'Accept: application/json, text/plain, */*',
-                'X-DeviceOS: 0',
-            ],
-        ]);
-        $wBody = curl_exec($ch);
-        $wCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($wCode >= 200 && $wCode < 400 && $wBody) {
-            $json = json_decode($wBody, true);
-            $items = $json['search_objects'] ?? [];
-            foreach (array_slice($items, 0, 12) as $item) {
-                $title = $item['title'] ?? '';
-                $price = $item['price'] ?? 0;
-                $city  = $item['location']['city'] ?? '';
-                $slug  = $item['web_slug'] ?? $item['id'] ?? '';
-                $img   = $item['images'][0]['medium'] ?? $item['images'][0]['original'] ?? '';
-                $desc  = $item['description'] ?? '';
-
-                if ($title) {
-                    $results[] = [
-                        'store'    => 'Wallapop',
-                        'location' => ($city ?: 'Espanya') . ', Espanya',
-                        'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
-                        'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
-                        'link'     => $slug ? "https://es.wallapop.com/item/{$slug}" : '',
-                        'image'    => $img,
-                        'desc'     => clean(mb_substr($desc, 0, 150)),
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 13) LEBONCOIN (França) - __NEXT_DATA__
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $q = urlencode($searchModel . ' piano');
-        $body = fetch("https://www.leboncoin.fr/recherche?text={$q}&category=26");
-
-        if ($body && preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
-            $json = json_decode($m[1], true);
-            $ads  = $json['props']['pageProps']['searchData']['ads'] ?? [];
-            foreach (array_slice($ads, 0, 10) as $ad) {
-                $price = $ad['price'][0] ?? 0;
-                $title = $ad['subject'] ?? '';
-                if ($title) {
-                    $results[] = [
-                        'store'    => 'Leboncoin',
-                        'location' => ($ad['location']['city'] ?? '') . ', Franca',
-                        'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . ($ad['body'] ?? ''), $title),
-                        'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
-                        'link'     => $ad['url'] ?? '',
-                        'image'    => $ad['images']['thumb_url'] ?? '',
-                        'desc'     => clean(mb_substr($ad['body'] ?? '', 0, 150)),
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 14) BOL PIANOS (Holanda/Belgica) - Shopify JSON
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://bolpianos.com/en/collections/tweedehands-pianos/products.json?limit=250');
-        if ($body) {
-            $json = json_decode($body, true);
-            foreach (($json['products'] ?? []) as $p) {
-                $title = $p['title'] ?? '';
-                $price = '';
-                if (!empty($p['variants'][0]['price'])) {
-                    $val = (float)$p['variants'][0]['price'];
-                    $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
-                }
-                $img = $p['images'][0]['src'] ?? '';
-                $handle = $p['handle'] ?? '';
-                $link = $handle ? "https://bolpianos.com/en/products/{$handle}" : '';
-                $desc = mb_substr(strip_tags($p['body_html'] ?? ''), 0, 150);
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Bol Pianos', 'location' => 'Holanda/Belgica',
-                        'title' => clean($title), 'year' => extractYear($title . ' ' . $desc, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'tweedehands segunda mano ' . clean($desc),
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 15) INSTRUMENTUM.CH (Suissa) - Shopify JSON
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.instrumentum.ch/collections/gebrauchtes-klavier-kaufen-occasion-klaviere/products.json?limit=250');
-        if ($body) {
-            $json = json_decode($body, true);
-            foreach (($json['products'] ?? []) as $p) {
-                $title = $p['title'] ?? '';
-                $price = '';
-                if (!empty($p['variants'][0]['price'])) {
-                    $val = (float)$p['variants'][0]['price'];
-                    $price = $val > 0 ? number_format($val, 0, ',', '.') . ' CHF' : '-';
-                }
-                $img = $p['images'][0]['src'] ?? '';
-                $handle = $p['handle'] ?? '';
-                $link = $handle ? "https://www.instrumentum.ch/products/{$handle}" : '';
-                $desc = mb_substr(strip_tags($p['body_html'] ?? ''), 0, 150);
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Instrumentum', 'location' => 'Suissa',
-                        'title' => clean($title), 'year' => extractYear($title . ' ' . $desc, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'gebraucht occasion ' . clean($desc),
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 16) EML PIANOS LYON (Franca) - PrestaShop
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch("https://www.pianos-lyon.com/6-pianos-occasion");
-        if ($body) {
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1]; $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'EML Pianos', 'location' => 'Lyon, Franca',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'occasion segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 17) HANLET (Brusselles, Belgica) - PrestaShop
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch("https://hanlet.be/en/14-second-hand");
-        if ($body) {
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1]; $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Hanlet', 'location' => 'Brusselles, Belgica',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'second hand segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 18) PIANOS SCHAEFFER (Franca/Luxemburg) - PrestaShop
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $psPages = [
-            'https://pianos-schaeffer.com/en/667-used-upright-pianos',
-            'https://pianos-schaeffer.com/en/711-other-used-premium-pianos',
-        ];
-        foreach ($psPages as $psUrl) {
-            $body = fetch($psUrl);
-            if (!$body) continue;
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1]; $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Pianos Schaeffer', 'location' => 'Nancy, Franca',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'used occasion segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 19) PIANO FISCHER (Alemanya) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $pfPages = [
-            'https://www.piano-fischer.de/kategorie/gebrauchte/klavier/',
-            'https://www.piano-fischer.de/kategorie/gebrauchte/fluegel-gebrauchte/',
-        ];
-        foreach ($pfPages as $pfUrl) {
-            $body = fetch($pfUrl);
-            if (!$body) continue;
-            if (preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                        $link = $m[1];
-                    }
-                    if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                        $title = clean($m[1]);
-                    }
-                    if (preg_match('/woocommerce-Price-amount[^>]*>([\d\s.,]+)/si', $item, $m)) {
-                        $price = str_replace(' ', '', trim($m[1])) . ' EUR';
-                    } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                        $price = trim($m[1]) . ' EUR';
-                    }
-                    if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Piano Fischer', 'location' => 'Alemanya',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'gebraucht segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 20) MARKSON PIANOS (Londres, UK) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://marksonpianos.com/product-category/pre-owned-pianos/?per_page=96');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 30) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>.*?(?:£|&#163;|&pound;)\s*([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' GBP';
-                } elseif (preg_match('/(?:£|GBP)\s*([\d.,]+)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' GBP';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Markson Pianos', 'location' => 'Londres, UK',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'pre-owned used segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 21) SHERWOOD PHOENIX (UK) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://sherwoodphoenix.co.uk/product-category/pianos/all-used-pianos/');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 30) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>.*?(?:£|&#163;|&pound;)\s*([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' GBP';
-                } elseif (preg_match('/(?:£|GBP)\s*([\d.,]+)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' GBP';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Sherwood Phoenix', 'location' => 'UK',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'used pre-owned segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 22) NEBOUT & HAMM (Paris, Franca) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://nebout-hamm.com/type-de-produit/acoustique-occasion/');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d\s.,]+)/si', $item, $m)) {
-                    $price = str_replace([' ', "\xc2\xa0"], '', trim($m[1])) . ' EUR';
-                } elseif (preg_match('/([\d\s.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = str_replace(' ', '', trim($m[1])) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Nebout & Hamm', 'location' => 'Paris, Franca',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'occasion segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 23) MARANGI (Italia) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.marangi.it/categorie/pianoforti-usati/');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach ($items[1] as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Marangi', 'location' => 'Italia',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'usato segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 24) PIANISSIMO (Madrid) - WooCommerce search
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $q = urlencode($searchModel);
-        $body = fetch("https://www.pianisimo.es/?s={$q}&post_type=product");
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 12) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Pianissimo', 'location' => 'Madrid, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 25) CASA HAZEN (Madrid) - WooCommerce search
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $q = urlencode($searchModel);
-        $body = fetch("https://www.casahazen.com/?s={$q}&post_type=product");
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 12) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Casa Hazen', 'location' => 'Madrid, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 26) HINVES PIANOS (Madrid/Granada/Getxo) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $hinvesUrls = [
-            'https://hinves.com/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://hinves.com/piano/condition/reestreno/',
-        ];
-        foreach ($hinvesUrls as $hinvesUrl) {
-            $body = fetch($hinvesUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Hinves Pianos', 'location' => 'Madrid, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'reestreno segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 27) MUSICAL PRINCESA (Madrid) - PrestaShop
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $mpPages = [
-            'https://www.musicalprinces.es/buscar?controller=search&s=' . urlencode($searchModel),
-            'https://www.musicalprinces.es/222-verticales-usados',
-            'https://www.musicalprinces.es/224-cola-usados',
-        ];
-        foreach ($mpPages as $mpUrl) {
-            $body = fetch($mpUrl);
-            if (!$body) continue;
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1]; $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Musical Princesa', 'location' => 'Madrid, Espanya',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'segunda mano usado',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 28) ROYAL PIANOS (Malaga/Sevilla/Oviedo) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $rpUrls = [
-            'https://royalpianos.com/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://royalpianos.com/categoria-producto/pianos-de-ocasion/',
-            'https://royalpianos.com/categoria-producto/pianos-yamaha-de-ocasion/',
-        ];
-        foreach ($rpUrls as $rpUrl) {
-            $body = fetch($rpUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Royal Pianos', 'location' => 'Malaga, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'ocasion segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 29) PIANO IMPORTA (Valencia) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $piUrls = [
-            'https://pianoimporta.com/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://pianoimporta.com/pianos-de-ocasion/',
-        ];
-        foreach ($piUrls as $piUrl) {
-            $body = fetch($piUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Piano Importa', 'location' => 'Valencia, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'ocasion segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 30) PIRINEUS MUSICAL (Reus, Tarragona) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['catalunya', 'espanya', 'europa']))) {
-    try {
-        $pmUrls = [
-            'https://www.pirineusmusical.com/categoria-producto/ocasio/',
-            'https://www.pirineusmusical.com/categoria-producto/pianos-acustics/',
-        ];
-        foreach ($pmUrls as $pmUrl) {
-            $body = fetch($pmUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Pirineus Musical', 'location' => 'Reus, Catalunya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'ocasio segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 31) RINCON MUSICAL (Madrid) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $rmUrls = [
-            'https://www.rinconmusical.es/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://www.rinconmusical.es/categoria-producto/pianos-y-teclados/pianos-acusticos/pianos-de-segunda-mano/',
-        ];
-        foreach ($rmUrls as $rmUrl) {
-            $body = fetch($rmUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach (array_slice($items[1], 0, 20) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Rincon Musical', 'location' => 'Madrid, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 32) MUSICASA TIENDAS (Palma/Ibiza/Menorca) - PrestaShop
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $mcUrls = [
-            'https://www.musicasatiendas.com/buscar?controller=search&s=' . urlencode($searchModel),
-            'https://www.musicasatiendas.com/705-pianos-de-ocasion-y-usados',
-        ];
-        foreach ($mcUrls as $mcUrl) {
-            $body = fetch($mcUrl);
-            if (!$body) continue;
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1]; $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Musicasa', 'location' => 'Palma, Espanya',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'ocasion usado segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 33) POLIMUSICA (Madrid) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $pmUrls = [
-            'https://polimusica.es/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://polimusica.es/categoria-producto/yamaha/pianos-de-ocasion/',
-        ];
-        foreach ($pmUrls as $pmUrl) {
-            $body = fetch($pmUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach ($items[1] as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Polimusica', 'location' => 'Madrid, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'ocasion segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 34) MUSICAL LEONES (Granada) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $mlUrls = [
-            'https://musicalleones.com/index.php/?s=' . urlencode($searchModel) . '&post_type=product',
-            'https://musicalleones.com/index.php/categoria-producto/pianos-restaurados/',
-        ];
-        foreach ($mlUrls as $mlUrl) {
-            $body = fetch($mlUrl);
-            if (!$body || !preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) continue;
-            foreach ($items[1] as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) $link = $m[1];
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) $title = clean($m[1]);
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Musical Leones', 'location' => 'Granada, Espanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'restaurado segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 35) KLAVIERHAUS LANGER (Austria) - Shopify JSON
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://klavierhaus-langer.at/collections/all/products.json?limit=250');
-        if ($body) {
-            $json = json_decode($body, true);
-            foreach (($json['products'] ?? []) as $p) {
-                $title = $p['title'] ?? '';
-                $price = '';
-                if (!empty($p['variants'][0]['price'])) {
-                    $val = (float)$p['variants'][0]['price'];
-                    $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '-';
-                }
-                $img = $p['images'][0]['src'] ?? '';
-                $handle = $p['handle'] ?? '';
-                $link = $handle ? "https://klavierhaus-langer.at/products/{$handle}" : '';
-                $desc = mb_substr(strip_tags($p['body_html'] ?? ''), 0, 150);
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Klavierhaus Langer', 'location' => 'Austria',
-                        'title' => clean($title), 'year' => extractYear($title . ' ' . $desc, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'gebraucht segunda mano ' . clean($desc),
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 36) PIANO.ART (Innsbruck, Austria) - WooCommerce
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://piano.art/product-category/gebrauchte-klaviere/');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach ($items[1] as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"[^>]*>\s*<img/si', $item, $m)) {
-                    $link = $m[1];
-                }
-                if (preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
-                    $title = clean($m[1]);
-                }
-                if (preg_match('/woocommerce-Price-amount[^>]*>([\d\s.,]+)/si', $item, $m)) {
-                    $price = str_replace([' ', "\xc2\xa0"], '', trim($m[1])) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) {
-                    $img = $m[1];
-                }
-                if ($title && $link) {
-                    $results[] = [
-                        'store' => 'Piano.art', 'location' => 'Innsbruck, Austria',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'gebraucht segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 37) ANAMORPHOSE (Nantes, Franca) - PrestaShop
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.anamorphose-pianos.fr/12-pianos-occasion');
-        if ($body) {
-            if (preg_match_all('/<article[^>]*class="[^"]*product-miniature[^"]*"[^>]*>(.*?)<\/article>/si', $body, $items)) {
-                foreach ($items[1] as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<h[34][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = $m[1]; $title = clean($m[2]);
-                    }
-                    $price = extractPrestashopPrice($item);
-                    if (preg_match('/<img[^>]+(?:data-full-size-image-url|src)="([^"]+)"/i', $item, $m)) {
-                        $img = $m[1];
-                    }
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Anamorphose', 'location' => 'Nantes, Franca',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'occasion segunda mano',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 38) 2DEHANDS.BE (Belgica) - Similar a Marktplaats
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
+        scraper('2dehands.be');
         $q = urlencode($searchModel . ' piano');
         $body = fetch("https://www.2dehands.be/q/{$q}/");
 
@@ -1790,19 +1033,21 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
                 $priceCents = $l['priceInfo']['priceCents'] ?? 0;
                 $priceType  = $l['priceInfo']['priceType'] ?? '';
                 $city       = $l['location']['cityName'] ?? '';
-                $slug       = $l['itemId'] ?? '';
+                $vipUrl     = $l['vipUrl'] ?? '';
                 $img        = $l['imageUrls'][0] ?? '';
                 $desc       = $l['description'] ?? '';
 
                 $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
-                $linkUrl  = $slug ? "https://www.2dehands.be/v/detail/{$slug}" : '';
+                $linkUrl  = $vipUrl ? "https://www.2dehands.be{$vipUrl}" : '';
 
                 if ($title && $linkUrl) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                     $results[] = [
                         'store'    => '2dehands.be',
                         'location' => ($city ?: 'Belgica') . ', Belgica',
                         'title'    => clean($title),
-                        'year'     => extractYear($title . ' ' . $desc, $title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
                         'price'    => $priceStr,
                         'link'     => $linkUrl,
                         'image'    => $img,
@@ -1811,605 +1056,704 @@ if (!empty(array_intersect($activeRegions, ['europa']))) {
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('2dehands.be');
+    } catch (\Throwable $e) { scraperFail('2dehands.be');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 39) PIANO'S MAENE (Belgica) - Magento
+// 10b-bis) 2EMEMAIN.BE (Bèlgica francòfona) - __NEXT_DATA__
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
+if (in_array($region, ['europa'])) {
     try {
-        $body = fetch('https://www.maene.be/en_BE/all-pianos/second-hand-pianos?product_list_limit=96');
+        scraper('2ememain.be');
+        $q = urlencode($searchModel . ' piano');
+        $body = fetch("https://www.2ememain.be/q/{$q}/");
+
+        if ($body && preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
+            $json = json_decode($m[1], true);
+            $listings = $json['props']['pageProps']['searchRequestAndResponse']['listings'] ?? [];
+
+            foreach (array_slice($listings, 0, 12) as $l) {
+                $title = $l['title'] ?? '';
+                $priceCents = $l['priceInfo']['priceCents'] ?? 0;
+                $priceType  = $l['priceInfo']['priceType'] ?? '';
+                $city       = $l['location']['cityName'] ?? '';
+                $vipUrl     = $l['vipUrl'] ?? '';
+                $img        = $l['imageUrls'][0] ?? '';
+                $desc       = $l['description'] ?? '';
+
+                $priceStr = $priceCents > 0 ? number_format($priceCents / 100, 0, ',', '.') . ' EUR' : ($priceType ?: '-');
+                $linkUrl  = $vipUrl ? "https://www.2ememain.be{$vipUrl}" : '';
+
+                if ($title && $linkUrl) {
+                    $yearInfo = extractYearEx($title . ' ' . $desc, $title);
+                    $results[] = [
+                        'store'    => '2ememain.be',
+                        'location' => ($city ?: 'Belgica') . ', Belgica',
+                        'title'    => clean($title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
+                        'price'    => $priceStr,
+                        'link'     => $linkUrl,
+                        'image'    => $img,
+                        'desc'     => clean(mb_substr($desc, 0, 150)),
+                    ];
+                }
+            }
+        }
+
+        scraperDone('2ememain.be');
+    } catch (\Throwable $e) { scraperFail('2ememain.be');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 10c) PIANO IMPORTA (València) - WooCommerce search
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['espanya', 'europa'])) {
+    try {
+        scraper('Piano Importa');
+        $q = urlencode($searchModel);
+        $body = fetch("https://pianoimporta.com/?s={$q}&post_type=product");
+
         if ($body) {
-            if (preg_match_all('/<li[^>]*class="[^"]*product-item[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-                foreach (array_slice($items[1], 0, 40) as $item) {
+            if (preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+                foreach (array_slice($items[1], 0, 10) as $item) {
                     $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/product-item-link[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                        $link = trim($m[1]);
-                        $title = clean($m[2]);
+
+                    if (preg_match('/href="(https?:\/\/pianoimporta\.com\/producto\/[^"]+)"/i', $item, $m)) {
+                        $link = $m[1];
                     }
-                    if (preg_match('/price-wrapper[^>]*>.*?([\d.,]+)/si', $item, $m)) {
-                        $price = trim($m[1]) . ' EUR';
-                    } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                        $price = trim($m[1]) . ' EUR';
+                    if (preg_match('/class="woocommerce-loop-product__title"[^>]*>(.*?)<\//si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (!$title && preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                        $title = clean($m[1]);
                     }
                     if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) {
                         $img = $m[1];
                     }
+                    if (preg_match('/<bdi>[^<]*&euro;[^<]*<\/span>([\d.,]+)<\/bdi>/si', $item, $m)) {
+                        $val = (float) str_replace(',', '', trim($m[1]));
+                        $price = number_format($val, 0, ',', '.') . ' EUR';
+                    } elseif (preg_match('/&euro;\s*<\/span>\s*([\d.,]+)/si', $item, $m)) {
+                        $val = (float) str_replace(',', '', trim($m[1]));
+                        $price = number_format($val, 0, ',', '.') . ' EUR';
+                    } elseif (preg_match('/amount"[^>]*>([\d.,]+)\s*(?:€|&euro;)/si', $item, $m)) {
+                        $price = trim($m[1]) . ' EUR';
+                    }
+
                     if ($title && $link) {
+                        $isOcasion = (bool) preg_match('/ocasi[oó]n|segunda\s*mano|2[ªa]\s*m[aà]|used|gebraucht/i', $title . ' ' . $link);
+                        $yearInfo = extractYearEx($title, $title);
+                        if (!$yearInfo['year']) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) $yearInfo = extractYearFromPage($pBody, $title);
+                        }
                         $results[] = [
-                            'store' => "Piano's Maene", 'location' => 'Belgica',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'second hand segunda mano',
+                            'store'    => 'Piano Importa',
+                            'location' => 'Valencia, Espanya',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ?: '-',
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => $isOcasion ? 'ocasion segunda mano' : '',
                         ];
                     }
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('Piano Importa');
+    } catch (\Throwable $e) { scraperFail('Piano Importa');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 40) GRAND GALLERY (Japo) - Export catalog
+// 11a) PIANOMART (Global - marketplace de pianos)
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['japo']))) {
+if (in_array($region, ['japo', 'europa', 'espanya'])) {
     try {
-        $body = fetch('https://export.grandg.com/en/yamaha-piano/', 8);
-        if ($body) {
-            if (preg_match_all('/<tr[^>]*>(.*?)<\/tr>/si', $body, $rows)) {
-                foreach (array_slice($rows[1], 0, 50) as $row) {
-                    $tds = [];
-                    if (preg_match_all('/<td[^>]*>(.*?)<\/td>/si', $row, $cells)) {
-                        $tds = array_map(fn($c) => trim(strip_tags($c)), $cells[1]);
-                    }
-                    if (count($tds) < 2) continue;
-                    $title = clean($tds[0]);
-                    if (mb_strlen($title) < 2) continue;
-                    $price = '';
-                    foreach ($tds as $td) {
-                        $tdClean = str_replace(',', '', $td);
-                        if (preg_match('/^[\d]+$/', $tdClean) && (int)$tdClean > 50000) {
-                            $price = number_format((int)$tdClean, 0, ',', ',') . ' JPY';
-                            break;
-                        }
-                    }
-                    $link = '';
-                    if (preg_match('/href="([^"]+)"/i', $row, $m)) {
-                        $link = $m[1];
-                        if (!str_starts_with($link, 'http')) $link = 'https://export.grandg.com' . $link;
-                    }
-                    $results[] = [
-                        'store' => 'Grand Gallery', 'location' => 'Aichi, Japo',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-',
-                        'link' => $link ?: 'https://export.grandg.com/en/yamaha-piano/',
-                        'image' => '', 'desc' => 'used export segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
+        scraper('PianoMart');
+        $q = urlencode($searchModel);
+        $body = fetch("https://www.pianomart.com/buy-a-piano/piano-ads?AdSearchForm%5Bsearch%5D={$q}", 15);
 
-// ══════════════════════════════════════════════════════════════
-// 41) PIANO PLAZA (Tokyo, Japo)
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['japo']))) {
-    try {
-        $q = urlencode($model);
-        $body = fetch("https://www.pianoplaza.com/search?q={$q}", 8);
-        if ($body && preg_match_all('/<div[^>]*class="[^"]*product-card[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 12) as $item) {
-                $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/<a[^>]+href="([^"]+)"/i', $item, $m)) {
-                    $link = $m[1];
-                    if (!str_starts_with($link, 'http')) $link = 'https://www.pianoplaza.com' . $link;
+        if ($body && preg_match_all('/<tr[^>]*data-key="(\d+)"[^>]*>(.*?)<\/tr>/si', $body, $rows, PREG_SET_ORDER)) {
+            foreach (array_slice($rows, 0, 12) as $row) {
+                $adId = $row[1];
+                $html = $row[2];
+                $cells = [];
+                if (preg_match_all('/<td[^>]*>(.*?)<\/td>/si', $html, $cellMatches)) {
+                    $cells = $cellMatches[1];
                 }
-                if (preg_match('/<(?:h[234]|span|div)[^>]*class="[^"]*(?:title|name)[^"]*"[^>]*>(.*?)<\//si', $item, $m)) {
-                    $title = clean($m[1]);
-                } elseif (preg_match('/<a[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                    $title = clean($m[1]);
+                if (count($cells) < 8) continue;
+
+                $year  = trim(strip_tags($cells[1]));
+                $title = trim(strip_tags($cells[2]));
+                $price = trim(strip_tags($cells[4]));
+                $state = trim(strip_tags($cells[5]));
+                $city  = trim(strip_tags($cells[6]));
+                $link  = '';
+                $img   = '';
+
+                if (preg_match('/href="(\/buy-a-piano\/view\?id=\d+)"/', $cells[2], $m)) {
+                    $link = 'https://www.pianomart.com' . $m[1];
                 }
-                if (preg_match('/([\d,]+)\s*(?:JPY|¥|円)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' JPY';
-                }
-                if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) {
+                if (preg_match('/src="([^"]+)"/', $cells[0], $m)) {
                     $img = $m[1];
                 }
-                if ($title && mb_strlen($title) > 2) {
+
+                $location = trim($city . ', ' . $state);
+                if ($title && $link) {
+                    $yearInfo = ['year' => '', 'confidence' => ''];
+                    if ($year && preg_match('/^\d{4}$/', $year)) {
+                        $yearInfo = ['year' => $year, 'confidence' => 'stated'];
+                    }
+                    if (!$yearInfo['year']) {
+                        $yearInfo = extractYearEx($title, $title);
+                    }
                     $results[] = [
-                        'store' => 'Piano Plaza', 'location' => 'Tokyo, Japo',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link ?: 'https://www.pianoplaza.com',
-                        'image' => $img, 'desc' => 'used segunda mano',
+                        'store'    => 'PianoMart',
+                        'location' => $location ?: 'Global',
+                        'title'    => clean($title),
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
+                        'price'    => $price ?: '-',
+                        'link'     => $link,
+                        'image'    => $img,
+                        'desc'     => '',
                     ];
                 }
             }
         }
-    } catch (\Throwable $e) {}
+
+        scraperDone('PianoMart');
+    } catch (\Throwable $e) { scraperFail('PianoMart');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 42) JAPAN PIANO SERVICE
+// 11b) JAPAN USED PIANO (japanusedpiano.com) - WooCommerce
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['japo']))) {
+if (in_array($region, ['japo'])) {
     try {
-        $body = fetch('https://www.japanpianoservice.com/stock/', 8);
+        scraper('Japan Used Piano');
+        $q = urlencode($searchModel);
+        $body = fetch("https://www.japanusedpiano.com/?s={$q}&post_type=product", 15);
+
         if ($body) {
-            if (preg_match_all('/<(?:tr|div|li)[^>]*>([^<]*yamaha[^<]*(?:<[^>]+>[^<]*)*)<\/(?:tr|div|li)>/si', $body, $rows)) {
-                $jpseen = [];
-                foreach (array_slice($rows[0], 0, 20) as $row) {
-                    $title = clean(strip_tags($row));
-                    if (mb_strlen($title) < 5 || mb_strlen($title) > 200 || isset($jpseen[$title])) continue;
-                    $jpseen[$title] = true;
+            if (preg_match_all('/<li[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+                foreach (array_slice($items[1], 0, 10) as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+
+                    if (preg_match('/href="(https?:\/\/www\.japanusedpiano\.com\/product\/[^"]+)"/i', $item, $m)) {
+                        $link = $m[1];
+                    }
+                    if (preg_match('/class="woocommerce-loop-product__title"[^>]*>(.*?)<\//si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (!$title && preg_match('/<h[23][^>]*>(.*?)<\/h[23]>/si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/<img[^>]+(?:src|data-src)="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+                    if (preg_match('/amount"[^>]*>([\d.,]+)/si', $item, $m)) {
+                        $price = '$' . trim($m[1]);
+                    } elseif (preg_match('/\$([\d,]+(?:\.\d{2})?)/', $item, $m)) {
+                        $price = '$' . $m[1];
+                    }
+
+                    if ($title && $link) {
+                        $yearInfo = extractYearEx($title, $title);
+                        if (!$yearInfo['year']) {
+                            $pBody = fetch($link, 10);
+                            if ($pBody) $yearInfo = extractYearFromPage($pBody, $title);
+                        }
+                        $results[] = [
+                            'store'    => 'Japan Used Piano',
+                            'location' => 'Japó',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ?: '-',
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+            if (!preg_match('/search-no-results/', $body)) {
+                $categoryUrl = "https://www.japanusedpiano.com/product-category/yamaha/";
+                $catBody = fetch($categoryUrl, 15);
+                if ($catBody && preg_match_all('/href="(https?:\/\/www\.japanusedpiano\.com\/product\/[^"]+)"/i', $catBody, $catLinks)) {
+                    $catProductLinks = array_unique($catLinks[1]);
+                    foreach (array_slice($catProductLinks, 0, 8) as $pLink) {
+                        $existsAlready = false;
+                        foreach ($results as $r) { if ($r['link'] === $pLink) { $existsAlready = true; break; } }
+                        if ($existsAlready) continue;
+
+                        $pBody = fetch($pLink, 10);
+                        if (!$pBody) continue;
+                        $pTitle = '';
+                        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/si', $pBody, $m)) $pTitle = clean($m[1]);
+                        if (!$pTitle) continue;
+
+                        $pImg = '';
+                        if (preg_match('/<img[^>]+src="(https?:\/\/www\.japanusedpiano\.com\/wp-content\/uploads\/[^"]+)"/i', $pBody, $m)) {
+                            $pImg = $m[1];
+                        }
+                        $pPrice = '';
+                        if (preg_match('/\$([\d,]+(?:\.\d{2})?)/', $pBody, $m)) {
+                            $pPrice = '$' . $m[1];
+                        }
+
+                        $yearInfo = extractYearEx($pTitle, $pTitle);
+                        if (!$yearInfo['year']) $yearInfo = extractYearFromPage($pBody, $pTitle);
+
+                        $results[] = [
+                            'store'    => 'Japan Used Piano',
+                            'location' => 'Japó',
+                            'title'    => $pTitle,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $pPrice ?: '-',
+                            'link'     => $pLink,
+                            'image'    => $pImg,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+        }
+
+        scraperDone('Japan Used Piano');
+    } catch (\Throwable $e) { scraperFail('Japan Used Piano');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11c) YAHOO AUCTIONS JAPAN (via web search fallback)
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Yahoo Auctions JP');
+        $q = urlencode($searchModel . ' ピアノ');
+        $resp = fetchWithCode("https://auctions.yahoo.co.jp/search/search?p={$q}&auccat=22540&va={$q}&exflg=1&b=1&n=20", 15);
+
+        if ($resp['code'] >= 400 || !$resp['body']) {
+            $scrapersRun['Yahoo Auctions JP']['status'] = 'blocked';
+            $scrapersRun['Yahoo Auctions JP']['note'] = 'Requereix IP japonesa';
+        } else {
+            $body = $resp['body'];
+            if (preg_match_all('/<li[^>]*class="[^"]*Product[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+                foreach (array_slice($items[1], 0, 10) as $item) {
+                    $title = ''; $price = ''; $link = ''; $img = '';
+
+                    if (preg_match('/href="(https?:\/\/page\.auctions\.yahoo\.co\.jp\/[^"]+)"/i', $item, $m)) {
+                        $link = $m[1];
+                    }
+                    if (preg_match('/Product__title[^>]*>(?:<a[^>]*>)?(.*?)(?:<\/a>)?<\//si', $item, $m)) {
+                        $title = clean($m[1]);
+                    }
+                    if (preg_match('/Product__priceValue[^>]*>(.*?)<\//si', $item, $m)) {
+                        $price = '¥' . clean($m[1]);
+                    }
+                    if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) {
+                        $img = $m[1];
+                    }
+
+                    if ($title && $link) {
+                        $yearInfo = extractYearEx($title, $title);
+                        $results[] = [
+                            'store'    => 'Yahoo Auctions JP',
+                            'location' => 'Japó',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ?: '-',
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
+                        ];
+                    }
+                }
+            }
+            scraperDone('Yahoo Auctions JP');
+        }
+    } catch (\Throwable $e) { scraperFail('Yahoo Auctions JP');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11d) MIKI PIANO (Osaka) - Yamaha specialist, all models
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Miki Piano');
+        $mikiFile = '/tmp/miki_piano_' . md5('yamaha') . '.html';
+        $mikiMaxAge = 3600;
+        if (file_exists($mikiFile) && (time() - filemtime($mikiFile)) < $mikiMaxAge) {
+            $mikiBody = file_get_contents($mikiFile);
+        } else {
+            $mikiBody = fetch("https://piano.miki.co.jp/lineup/brand/yamaha/", 20);
+            if ($mikiBody) @file_put_contents($mikiFile, $mikiBody);
+        }
+
+        if ($mikiBody && preg_match_all('/<a\s+href="([^"]+)"\s+class="item">(.*?)<\/a>/si', $mikiBody, $cards, PREG_SET_ORDER)) {
+            foreach ($cards as $card) {
+                $link = $card[1];
+                $html = $card[2];
+                if (str_contains($html, 'contracted')) continue;
+                $isUsed = str_contains($html, '中古');
+
+                $title = '';
+                if (preg_match('/class="name">(.*?)<\/div>/si', $html, $m))
+                    $title = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+                $price = '';
+                if (preg_match('/class="price">(.*?)<\/span>/si', $html, $m))
+                    $price = trim(strip_tags($m[1]));
+                $year = '';
+                $yearConf = '';
+                if (preg_match('/class="era">(.*?)<\/div>/si', $html, $m)) {
+                    $eraText = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+                    if (preg_match('/(\d{4})年/', $eraText, $ym)) {
+                        $year = $ym[1];
+                        $yearConf = 'stated';
+                    }
+                }
+                $img = '';
+                if (preg_match('/<img[^>]+src="([^"]+)"/i', $html, $m)) $img = $m[1];
+                $desc = '';
+                if (preg_match('/class="description">(.*?)<\/div>/si', $html, $m))
+                    $desc = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
+
+                if ($title && $price) {
+                    $priceJPY = preg_replace('/[^\d]/', '', $price);
+                    $priceStr = $priceJPY ? number_format((int)$priceJPY) . ' JPY' : '-';
+                    $condition = $isUsed ? '2a_ma' : 'nou';
+                    $results[] = [
+                        'store'    => 'Miki Piano',
+                        'location' => 'Osaka, Japó',
+                        'title'    => clean($title),
+                        'year'     => $year,
+                        'year_confidence' => $yearConf,
+                        'price'    => $priceStr,
+                        'link'     => $link,
+                        'image'    => $img,
+                        'desc'     => clean(mb_substr($desc, 0, 150)),
+                        'condition' => $condition,
+                    ];
+                }
+            }
+        }
+
+        scraperDone('Miki Piano');
+    } catch (\Throwable $e) { scraperFail('Miki Piano');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11e) SHIMAMURA (cadena de botigues de música, Japó)
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['japo'])) {
+    try {
+        scraper('Shimamura');
+        $shimaResults = [];
+        $shimaUrls = [
+            'https://store.shimamura.co.jp/ec/Facet?category_0=11150204000',
+            'https://store.shimamura.co.jp/ec/Facet?category_0=11150706000',
+        ];
+        foreach ($shimaUrls as $shimaUrl) {
+            $shimaBody = fetch($shimaUrl, 15);
+            if (!$shimaBody) continue;
+            if (preg_match_all('/<div class="item">(.*?)<!-- \/item -->/si', $shimaBody, $items)) {
+                foreach ($items[1] as $item) {
+                    if (!str_contains($item, 'icon_reuse')) continue;
+                    if (str_contains($item, '在庫切れ')) continue;
+
+                    $title = '';
+                    if (preg_match('/class="item-name"[^>]*><a[^>]*>(.*?)<\/a>/si', $item, $m))
+                        $title = trim(strip_tags(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8')));
                     $price = '';
-                    if (preg_match('/([\d,]+)\s*(?:JPY|¥|yen|円)/i', $row, $m)) {
-                        $price = trim($m[1]) . ' JPY';
+                    if (preg_match('/class="item-price[^"]*"[^>]*>(.*?)<\/p>/si', $item, $m)) {
+                        $priceRaw = strip_tags($m[1]);
+                        if (preg_match('/([\d,]+)/', $priceRaw, $pm))
+                            $price = str_replace(',', '', $pm[1]);
+                    }
+                    $img = '';
+                    if (preg_match('/<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"/i', $item, $m)) {
+                        $img = 'https://store.shimamura.co.jp' . $m[1];
                     }
                     $link = '';
-                    if (preg_match('/href="([^"]+)"/i', $row, $m)) {
-                        $link = $m[1];
-                        if (!str_starts_with($link, 'http')) $link = 'https://www.japanpianoservice.com' . $link;
-                    }
-                    $results[] = [
-                        'store' => 'Japan Piano Service', 'location' => 'Japo',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-',
-                        'link' => $link ?: 'https://www.japanpianoservice.com/stock/',
-                        'image' => '', 'desc' => 'used export segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
+                    if (preg_match('/href="(\/ec\/pro\/disp\/1\/[^"]+)"/i', $item, $m))
+                        $link = 'https://store.shimamura.co.jp' . $m[1];
 
-// ══════════════════════════════════════════════════════════════
-// 43) PIANO CHOLLO (Ontinyent, Valencia) - Custom PHP
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $pcUrls = [
-            'https://www.pianochollo.com/pianos-verticales/pianos-renovados',
-            'https://www.pianochollo.com/pianos-de-cola/pianos-renovados',
-        ];
-        foreach ($pcUrls as $pcUrl) {
-            $body = fetch($pcUrl);
-            if (!$body) continue;
-            if (preg_match_all('/<a[^>]+href="(https?:\/\/www\.pianochollo\.com\/[^"]*\d+_[^"]+)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                foreach (array_slice($links, 0, 15) as $lm) {
-                    $link = $lm[1]; $inner = $lm[2]; $title = '';
-                    if (preg_match('/alt="([^"]+)"/i', $inner, $m)) $title = clean($m[1]);
-                    if (!$title && preg_match('/<(?:h[234]|span|strong)[^>]*>(.*?)<\//si', $inner, $m)) $title = clean($m[1]);
-                    $img = ''; if (preg_match('/src="([^"]+)"/i', $inner, $m)) $img = $m[1];
-                    $price = ''; if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $inner, $m)) $price = trim($m[1]) . ' EUR';
                     if ($title && $link) {
+                        $titleClean = preg_replace('/\s*【[^】]+】\s*$/', '', $title);
+                        $yearInfo = extractYearEx($titleClean, $titleClean);
+                        $priceStr = $price ? number_format((int)$price) . ' JPY' : '-';
                         $results[] = [
-                            'store' => 'Piano Chollo', 'location' => 'Ontinyent, Espanya',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'renovado segunda mano',
+                            'store'    => 'Shimamura',
+                            'location' => 'Japó',
+                            'title'    => clean($titleClean),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $priceStr,
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
                         ];
                     }
                 }
             }
         }
-    } catch (\Throwable $e) {}
+
+        scraperDone('Shimamura');
+    } catch (\Throwable $e) { scraperFail('Shimamura');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 44) KLAVIER (Murcia/Alicante) - Odoo
+// 12) EBAY (.es, .de, .com)
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['espanya', 'europa']))) {
-    try {
-        $body = fetch('https://www.klavier.es/shop/category/pianos-segunda-mano-455');
-        if ($body) {
-            if (preg_match_all('/<form[^>]+action="[^"]*\/shop\/cart\/update"[^>]*>(.*?)<\/form>/si', $body, $items)) {
-                foreach (array_slice($items[1], 0, 20) as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/<a[^>]+href="(https?:\/\/www\.klavier\.es\/shop\/[^"]+)"[^>]*>/i', $item, $m)) $link = $m[1];
-                    if (preg_match('/<(?:h[2345]|span)[^>]*class="[^"]*product[^"]*name[^"]*"[^>]*>(.*?)<\//si', $item, $m)) $title = clean($m[1]);
-                    elseif (preg_match('/itemprop="name"[^>]*>(.*?)<\//si', $item, $m)) $title = clean($m[1]);
-                    if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) $price = trim($m[1]) . ' EUR';
-                    elseif (preg_match('/itemprop="price"[^>]*content="([\d.]+)"/i', $item, $m)) {
-                        $val = (float)$m[1]; $price = $val > 0 ? number_format($val, 0, ',', '.') . ' EUR' : '';
-                    }
-                    if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) $img = $m[1];
-                    if ($title && $link) {
-                        $results[] = [
-                            'store' => 'Klavier', 'location' => 'Murcia, Espanya',
-                            'title' => clean($title), 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'segunda mano ocasion',
-                        ];
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
+$ebayDomains = [];
+if (in_array($region, ['espanya', 'catalunya'])) $ebayDomains[] = 'www.ebay.es';
+if ($region === 'europa') { $ebayDomains[] = 'www.ebay.es'; $ebayDomains[] = 'www.ebay.de'; }
+if ($region === 'japo') { $ebayDomains[] = 'www.ebay.com'; }
 
-// ══════════════════════════════════════════════════════════════
-// 45) KLAVIER KREISEL (Germany) - Magento
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
+foreach ($ebayDomains as $ebayDomain) {
     try {
-        $body = fetch('https://www.klavier-kreisel.de/klavier/gebraucht.html?product_list_limit=96');
-        if ($body && preg_match_all('/<li[^>]*class="[^"]*product-item[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
-            foreach (array_slice($items[1], 0, 40) as $item) {
+        scraper('eBay');
+        $q = urlencode($searchModel . ' piano');
+        $body = fetch("https://{$ebayDomain}/sch/i.html?_nkw={$q}&_sacat=180015&LH_BIN=1&_sop=15", 12);
+
+        if (!$body) { scraperFail('eBay'); continue; }
+        if (preg_match_all('/<li[^>]*class="[^"]*s-item\s[^"]*"[^>]*>(.*?)<\/li>/si', $body, $items)) {
+            foreach (array_slice($items[1], 1, 10) as $item) {
                 $title = ''; $price = ''; $link = ''; $img = '';
-                if (preg_match('/product-item-link[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/si', $item, $m)) {
-                    $link = trim($m[1]); $title = clean($m[2]);
-                }
-                if (preg_match('/price-wrapper[^>]*>.*?([\d.,]+)/si', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                } elseif (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) {
-                    $price = trim($m[1]) . ' EUR';
-                }
-                if (preg_match('/<img[^>]+src="([^"]+)"/i', $item, $m)) $img = $m[1];
-                if ($title && $link) {
+                if (preg_match('/class="s-item__title"[^>]*>(?:<span[^>]*>)?(.*?)(?:<\/span>)?<\//si', $item, $m)) $title = clean($m[1]);
+                if (preg_match('/class="s-item__price"[^>]*>(.*?)<\/span>/si', $item, $m)) $price = clean($m[1]);
+                if (preg_match('/href="(https?:\/\/www\.ebay\.[^"]*)"/', $item, $m)) $link = strtok($m[1], '?');
+                if (preg_match('/<img[^>]*src="(https?:\/\/i\.ebayimg[^"]*)"/', $item, $m)) $img = $m[1];
+
+                if ($title && mb_strlen($title) > 5 && !str_contains(strtolower($title), 'shop on ebay')) {
+                    $country = str_contains($ebayDomain, '.de') ? 'Alemanya' : (str_contains($ebayDomain, '.com') ? 'Global' : 'Espanya');
+                    $yearInfo = extractYearEx($title, $title);
                     $results[] = [
-                        'store' => 'Klavier Kreisel', 'location' => 'Alemanya',
-                        'title' => clean($title), 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'gebraucht used segunda mano',
+                        'store'    => 'eBay',
+                        'location' => $country,
+                        'title'    => $title,
+                        'year'     => $yearInfo['year'],
+                        'year_confidence' => $yearInfo['confidence'],
+                        'price'    => $price ?: '-',
+                        'link'     => $link,
+                        'image'    => $img,
+                        'desc'     => '',
                     ];
                 }
             }
         }
-    } catch (\Throwable $e) {}
+    
+        scraperDone('eBay');
+    } catch (\Throwable $e) { scraperFail('eBay');}
 }
 
 // ══════════════════════════════════════════════════════════════
-// 46) KLAVIERHALLE (Altenberge, Germany) - Custom/Static
+// 12) WALLAPOP (Espanya) - API JSON
 // ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        for ($pg = 1; $pg <= 3; $pg++) {
-            $pgStr = str_pad($pg, 3, '0', STR_PAD_LEFT);
-            $body = fetch("https://www.klavierhalle.de/database/dblstk_p_{$pgStr}.html");
-            if (!$body) break;
-            if (preg_match_all('/<a[^>]+href="(\/klavier\/[^"]+\.html)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = 'https://www.klavierhalle.de' . $lm[1];
-                    $title = clean($lm[2]);
-                    if (mb_strlen($title) < 3) continue;
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, $pos, 500);
-                        if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $ctx, $m)) $price = trim($m[1]) . ' EUR';
-                    }
-                    $results[] = [
-                        'store' => 'Klavierhalle', 'location' => 'Altenberge, Alemanya',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => '',
-                        'desc' => 'gebraucht used segunda mano',
-                    ];
-                }
+if (in_array($region, ['espanya', 'catalunya', 'europa'])) {
+    $wpLocations = [];
+    if ($region === 'catalunya') {
+        $wpLocations[] = ['41.3851', '2.1734', '200000'];   // Barcelona, 200km radius
+    } elseif ($region === 'espanya' || $region === 'europa') {
+        $wpLocations[] = ['40.0000', '-3.0000', '600000'];  // Centre d'Espanya, 600km radius (cobreix tot)
+        $wpLocations[] = ['41.3851', '2.1734', '300000'];   // Barcelona, 300km
+    }
+
+    scraper('Wallapop');
+    $wpSeenIds = [];
+    foreach ($wpLocations as [$lat, $lon, $dist]) {
+        try {
+            $q = urlencode($searchModel . ' piano');
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => "https://api.wallapop.com/api/v3/general/search?keywords={$q}&latitude={$lat}&longitude={$lon}&distance={$dist}&filters_source=default_filters&order_by=newest",
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT        => 12,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_ENCODING       => '',
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                CURLOPT_HTTPHEADER     => [
+                    'Accept: application/json, text/plain, */*',
+                    'X-DeviceOS: 0',
+                ],
+            ]);
+            $wBody = curl_exec($ch);
+            $wCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($wCode >= 400 || !$wBody) {
+                $scrapersRun['Wallapop']['status'] = 'blocked';
             }
-        }
-    } catch (\Throwable $e) {}
-}
+            if ($wCode >= 200 && $wCode < 400 && $wBody) {
+                $json = json_decode($wBody, true);
+                $items = $json['search_objects'] ?? [];
+                foreach (array_slice($items, 0, 15) as $item) {
+                    $title = $item['title'] ?? '';
+                    $price = $item['price'] ?? 0;
+                    $city  = $item['location']['city'] ?? '';
+                    $slug  = $item['web_slug'] ?? $item['id'] ?? '';
+                    $wpId  = $item['id'] ?? $slug;
+                    $img   = $item['images'][0]['medium'] ?? $item['images'][0]['original'] ?? '';
+                    $desc  = $item['description'] ?? '';
 
-// ══════════════════════════════════════════════════════════════
-// 47) BESBRODE PIANOS (Leeds, UK) - Custom/Static
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.besbrodepianos.co.uk/listing.htm');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(\/piano-sale\/[^"]+\.htm)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = 'https://www.besbrodepianos.co.uk' . $lm[1];
-                    $title = clean($lm[2]);
-                    if (mb_strlen($title) < 3 || str_contains(strtolower($title), 'click')) continue;
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, max(0, $pos - 100), 600);
-                        if (preg_match('/(?:£|GBP)\s*([\d,]+)/i', $ctx, $m)) $price = trim($m[1]) . ' GBP';
-                    }
-                    $results[] = [
-                        'store' => 'Besbrode Pianos', 'location' => 'Leeds, UK',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => '',
-                        'desc' => 'used pre-owned segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 48) PIANOZ (Maidenhead, UK) - Drupal
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://pianoz.com/pianos-for-sale');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(\/piano-sale\/piano\/[^"]+)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                $pzSeen = [];
-                foreach (array_slice($links, 0, 30) as $lm) {
-                    $link = 'https://pianoz.com' . $lm[1];
-                    if (isset($pzSeen[$link])) continue;
-                    $pzSeen[$link] = true;
-                    $title = clean(strip_tags($lm[2]));
-                    if (mb_strlen($title) < 3) continue;
-                    $img = '';
-                    if (preg_match('/src="([^"]+)"/i', $lm[2], $m)) $img = $m[1];
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, $pos, 500);
-                        if (preg_match('/(?:£|GBP)\s*([\d,]+)/i', $ctx, $m)) $price = trim($m[1]) . ' GBP';
-                    }
-                    $results[] = [
-                        'store' => 'PIANOZ', 'location' => 'UK',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'used pre-owned segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 49) PIANOSHOP.FR (France) - Custom
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.pianoshop.fr/occasions');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(\/[^"]*-id\d+[^"]*)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                $psSeen = [];
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = 'https://www.pianoshop.fr' . $lm[1];
-                    if (isset($psSeen[$link])) continue;
-                    $psSeen[$link] = true;
-                    $inner = $lm[2]; $title = '';
-                    if (preg_match('/alt="([^"]+)"/i', $inner, $m)) $title = clean($m[1]);
-                    if (!$title) $title = clean(strip_tags($inner));
-                    if (mb_strlen($title) < 3) continue;
-                    $img = '';
-                    if (preg_match('/src="([^"]+)"/i', $inner, $m)) {
-                        $img = $m[1];
-                        if (!str_starts_with($img, 'http')) $img = 'https://www.pianoshop.fr' . $img;
-                    }
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, $pos, 500);
-                        if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $ctx, $m)) $price = trim($m[1]) . ' EUR';
-                    }
-                    $results[] = [
-                        'store' => 'Pianoshop.fr', 'location' => 'Franca',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'occasion used segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 50) QUATRE MAINS PIANOS (Ghent, Belgium) - Squarespace
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.quatremainspianos.be/tweedehands-pianos');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(\/tweedehands-pianos\/p\/[^"]+)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                $qmSeen = [];
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = 'https://www.quatremainspianos.be' . $lm[1];
-                    if (isset($qmSeen[$link])) continue;
-                    $qmSeen[$link] = true;
-                    $title = clean(strip_tags($lm[2]));
-                    if (mb_strlen($title) < 3) continue;
-                    $img = '';
-                    if (preg_match('/src="([^"]+squarespace[^"]+)"/i', $lm[2], $m)) $img = $m[1];
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, $pos, 500);
-                        if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $ctx, $m)) $price = trim($m[1]) . ' EUR';
-                    }
-                    $results[] = [
-                        'store' => 'Quatre Mains', 'location' => 'Ghent, Belgica',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'tweedehands used segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 51) KLAVIERLOFT (Vienna, Austria) - Weebly
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.klavierloft.at/gebrauchte-pianos.html');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(https?:\/\/www\.klavierloft\.at\/[^"]+\.html)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                $klSeen = [];
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = $lm[1];
-                    if ($link === 'https://www.klavierloft.at/gebrauchte-pianos.html') continue;
-                    if (isset($klSeen[$link])) continue;
-                    $klSeen[$link] = true;
-                    $title = clean(strip_tags($lm[2]));
-                    if (mb_strlen($title) < 3 || str_contains(strtolower($title), 'kontakt') || str_contains(strtolower($title), 'impressum')) continue;
-                    $img = '';
-                    if (preg_match('/src="([^"]+)"/i', $lm[2], $m)) $img = $m[1];
-                    $results[] = [
-                        'store' => 'KlavierLoft', 'location' => 'Viena, Austria',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'gebraucht used segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 52) SCORTICATI PIANOFORTI (Milan, Italy) - Weebly
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.scorticatipianoforti.it/pianoforti-usati-milano');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(https?:\/\/www\.scorticatipianoforti\.it\/catalogo\/[^"]+)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                $scSeen = [];
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = $lm[1];
-                    if (isset($scSeen[$link])) continue;
-                    $scSeen[$link] = true;
-                    $title = '';
-                    if (preg_match('/alt="([^"]+)"/i', $lm[2], $m)) $title = clean($m[1]);
-                    if (!$title) $title = clean(strip_tags($lm[2]));
-                    if (mb_strlen($title) < 3) continue;
-                    $img = '';
-                    if (preg_match('/src="([^"]+)"/i', $lm[2], $m)) $img = $m[1];
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, $pos, 500);
-                        if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $ctx, $m)) $price = trim($m[1]) . ' EUR';
-                    }
-                    $results[] = [
-                        'store' => 'Scorticati', 'location' => 'Mila, Italia',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'usato used segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 53) BONTEMPI PIANOFORTI (Roma, Italy) - Custom
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $body = fetch('https://www.pianofortibontempiroma.com/pianoforti-usato-garantito');
-        if ($body) {
-            if (preg_match_all('/<a[^>]+href="(https?:\/\/www\.pianofortibontempiroma\.com\/[^"]*pianofort[^"]*)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                $btSeen = [];
-                foreach (array_slice($links, 0, 20) as $lm) {
-                    $link = $lm[1];
-                    if ($link === 'https://www.pianofortibontempiroma.com/pianoforti-usato-garantito') continue;
-                    if (isset($btSeen[$link])) continue;
-                    $btSeen[$link] = true;
-                    $title = '';
-                    if (preg_match('/alt="([^"]+)"/i', $lm[2], $m)) $title = clean($m[1]);
-                    if (!$title) $title = clean(strip_tags($lm[2]));
-                    if (mb_strlen($title) < 3) continue;
-                    $img = '';
-                    if (preg_match('/src="([^"]+)"/i', $lm[2], $m)) $img = $m[1];
-                    $price = '';
-                    $pos = strpos($body, $lm[0]);
-                    if ($pos !== false) {
-                        $ctx = substr($body, $pos, 500);
-                        if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $ctx, $m)) $price = trim($m[1]) . ' EUR';
-                    }
-                    $results[] = [
-                        'store' => 'Bontempi', 'location' => 'Roma, Italia',
-                        'title' => $title, 'year' => extractYear($title, $title),
-                        'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                        'desc' => 'usato garantito used segunda mano',
-                    ];
-                }
-            }
-        }
-    } catch (\Throwable $e) {}
-}
-
-// ══════════════════════════════════════════════════════════════
-// 54) KLAVIANO (Europe-wide aggregator) - Custom
-// ══════════════════════════════════════════════════════════════
-if (!empty(array_intersect($activeRegions, ['europa']))) {
-    try {
-        $q = urlencode($searchModel);
-        $body = fetch("https://www.klaviano.com/pianos-for-sale/yamaha.html?search={$q}&condition=used");
-        if ($body) {
-            if (preg_match_all('/<div[^>]*class="[^"]*piano-item[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/si', $body, $items)) {
-                foreach (array_slice($items[1], 0, 25) as $item) {
-                    $title = ''; $price = ''; $link = ''; $img = '';
-                    if (preg_match('/href="([^"]+\.html)"/i', $item, $m)) {
-                        $link = $m[1];
-                        if (!str_starts_with($link, 'http')) $link = 'https://www.klaviano.com' . $link;
-                    }
-                    if (preg_match('/<h[234][^>]*>(.*?)<\/h[234]>/si', $item, $m)) $title = clean($m[1]);
-                    elseif (preg_match('/alt="([^"]+)"/i', $item, $m)) $title = clean($m[1]);
-                    if (preg_match('/([\d.,]+)\s*(?:€|EUR)/i', $item, $m)) $price = trim($m[1]) . ' EUR';
-                    if (preg_match('/<img[^>]+(?:data-src|src)="([^"]+)"/i', $item, $m)) $img = $m[1];
-                    if ($title && $link) {
+                    if ($title && !isset($wpSeenIds[$wpId])) {
+                        $wpSeenIds[$wpId] = true;
+                        $yearInfo = extractYearEx($title . ' ' . $desc, $title);
                         $results[] = [
-                            'store' => 'Klaviano', 'location' => 'Europa',
-                            'title' => $title, 'year' => extractYear($title, $title),
-                            'price' => $price ?: '-', 'link' => $link, 'image' => $img,
-                            'desc' => 'used occasion gebraucht segunda mano',
+                            'store'    => 'Wallapop',
+                            'location' => ($city ?: 'Espanya') . ', Espanya',
+                            'title'    => clean($title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
+                            'link'     => $slug ? "https://es.wallapop.com/item/{$slug}" : '',
+                            'image'    => $img,
+                            'desc'     => clean(mb_substr($desc, 0, 150)),
                         ];
                     }
                 }
             }
-            // Fallback: link-based extraction
-            if (empty(array_filter($results, fn($r) => $r['store'] === 'Klaviano'))) {
-                if (preg_match_all('/<a[^>]+href="(\/pianos-for-sale\/yamaha\/[^"]+\.html)"[^>]*>(.*?)<\/a>/si', $body, $links, PREG_SET_ORDER)) {
-                    $kvSeen = [];
-                    foreach (array_slice($links, 0, 20) as $lm) {
-                        $link = 'https://www.klaviano.com' . $lm[1];
-                        if (isset($kvSeen[$link])) continue;
-                        $kvSeen[$link] = true;
-                        $title = clean(strip_tags($lm[2]));
-                        if (mb_strlen($title) < 3) continue;
+        } catch (\Throwable $e) {}
+    }
+    scraperDone('Wallapop');
+}
+
+// ══════════════════════════════════════════════════════════════
+// 13) LEBONCOIN (França) - __NEXT_DATA__
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        scraper('Leboncoin');
+        $q = urlencode($searchModel . ' piano');
+        $resp = fetchWithCode("https://www.leboncoin.fr/recherche?text={$q}&category=26");
+
+        if ($resp['code'] >= 400 || !$resp['body']) {
+            $scrapersRun['Leboncoin']['status'] = 'blocked';
+            $scrapersRun['Leboncoin']['note'] = 'Anti-bot DataDome';
+        } else {
+            $body = $resp['body'];
+            if (preg_match('/__NEXT_DATA__[^>]*>(.*?)<\/script>/si', $body, $m)) {
+                $json = json_decode($m[1], true);
+                $ads  = $json['props']['pageProps']['searchData']['ads'] ?? [];
+                foreach (array_slice($ads, 0, 10) as $ad) {
+                    $price = $ad['price'][0] ?? 0;
+                    $title = $ad['subject'] ?? '';
+                    if ($title) {
+                        $yearInfo = extractYearEx($title . ' ' . ($ad['body'] ?? ''), $title);
                         $results[] = [
-                            'store' => 'Klaviano', 'location' => 'Europa',
-                            'title' => $title, 'year' => extractYear($title, $title),
-                            'price' => '-', 'link' => $link, 'image' => '',
-                            'desc' => 'used occasion gebraucht segunda mano',
+                            'store'    => 'Leboncoin',
+                            'location' => ($ad['location']['city'] ?? '') . ', Franca',
+                            'title'    => clean($title),
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price ? number_format((float)$price, 0, ',', '.') . ' EUR' : '-',
+                            'link'     => $ad['url'] ?? '',
+                            'image'    => $ad['images']['thumb_url'] ?? '',
+                            'desc'     => clean(mb_substr($ad['body'] ?? '', 0, 150)),
+                        ];
+                    }
+                }
+            }
+            scraperDone('Leboncoin');
+        }
+    } catch (\Throwable $e) { scraperFail('Leboncoin');}
+}
+
+// ══════════════════════════════════════════════════════════════
+// 14) OLX.PL (Polònia) - HTML cards
+// ══════════════════════════════════════════════════════════════
+if (in_array($region, ['europa'])) {
+    try {
+        scraper('OLX.pl');
+        $q = urlencode($searchModel . ' pianino');
+        $body = fetch("https://www.olx.pl/oferty/q-{$q}/", 15);
+
+        if ($body) {
+            if (preg_match_all('/data-cy="l-card"[^>]*id="(\d+)".*?href="(\/d\/oferta\/[^"]+)".*?<h4[^>]*>(.*?)<\/h4>.*?data-testid="ad-price"[^>]*>(.*?)<\/p>/si', $body, $cards, PREG_SET_ORDER)) {
+                foreach (array_slice($cards, 0, 15) as $card) {
+                    $adId    = $card[1];
+                    $link    = 'https://www.olx.pl' . strtok($card[2], '?');
+                    $title   = clean($card[3]);
+                    $priceRaw = $card[4];
+                    $price = '-';
+                    if (preg_match('/([\d\s]+)\s*zł/', $priceRaw, $pm)) {
+                        $price = trim($pm[1]) . ' PLN';
+                    }
+                    $img = '';
+                    if (preg_match('/src="(https?:\/\/[^"]*apollo\.olxcdn[^"]+)"/i', $card[0], $im)) {
+                        $img = $im[1];
+                    }
+                    $loc = '';
+                    if (preg_match('/data-testid="location-date"[^>]*>(.*?)</si', $body, $lm)) {
+                        $loc = clean($lm[1]);
+                    }
+
+                    if ($title) {
+                        $yearInfo = extractYearEx($title, $title);
+                        $results[] = [
+                            'store'    => 'OLX.pl',
+                            'location' => ($loc ?: 'Polònia') . ', Polònia',
+                            'title'    => $title,
+                            'year'     => $yearInfo['year'],
+                            'year_confidence' => $yearInfo['confidence'],
+                            'price'    => $price,
+                            'link'     => $link,
+                            'image'    => $img,
+                            'desc'     => '',
                         ];
                     }
                 }
             }
         }
-    } catch (\Throwable $e) {}
+
+        scraperDone('OLX.pl');
+    } catch (\Throwable $e) { scraperFail('OLX.pl');}
+}
+
+// ── Diagnòstic: comptar resultats bruts per font ────────────
+$rawCount = count($results);
+$rawByStore = [];
+foreach ($results as $r) {
+    $s = $r['store'];
+    $rawByStore[$s] = ($rawByStore[$s] ?? 0) + 1;
 }
 
 // ── Classificació nou/2a mà ─────────────────────────────────
 foreach ($results as &$r) {
-    $r['condition'] = classifyCondition($r['title'], $r['link'], $r['store'], $r['desc'] ?? '');
+    if (empty($r['condition'])) $r['condition'] = classifyCondition($r['title'], $r['link'], $r['store'], $r['desc'] ?? '');
 }
 unset($r);
 
-// Filtrar: només segona mà confirmada
+$beforeCondFilter = count($results);
 $results = array_values(array_filter($results, fn($r) => $r['condition'] === '2a_ma'));
+$afterCondFilter = count($results);
 
 // ── Filtratge de rellevància ────────────────────────────────
-// Extract the model code (non-yamaha part) - this MUST match
 $modelClean = mb_strtolower(preg_replace('/\byamaha\b/i', '', $model));
 $modelCode = trim(preg_replace('/[\s\-]+/', '', $modelClean));
 
-$modelPattern = '/(?<![a-z0-9])' . preg_quote($modelCode, '/') . '(?![0-9])/i';
+// Build flexible pattern: allow optional separators (-, space, .) between chars
+$chars = preg_split('//u', $modelCode, -1, PREG_SPLIT_NO_EMPTY);
+$flexPattern = implode('[\s\-\.]*', array_map(fn($c) => preg_quote($c, '/'), $chars));
+$modelPattern = '/(?<![a-z0-9])' . $flexPattern . '(?![0-9])/i';
+
+$beforeModelFilter = count($results);
 $results = array_values(array_filter($results, function($r) use ($modelPattern) {
     if (empty($r['title']) || empty($r['link'])) return false;
-    $text = mb_strtolower($r['title'] . ' ' . ($r['desc'] ?? ''));
+    $text = mb_strtolower($r['title'] . ' ' . ($r['desc'] ?? '') . ' ' . ($r['link'] ?? ''));
     return (bool) preg_match($modelPattern, $text);
 }));
+$afterModelFilter = count($results);
 
 // ── Deduplicació per link ───────────────────────────────────
 $seen = [];
@@ -2420,14 +1764,126 @@ $results = array_values(array_filter($results, function($r) use (&$seen) {
     return true;
 }));
 
+// ── Conversió JPY → EUR ────────────────────────────────────
+$hasJPY = false;
+foreach ($results as $r) {
+    if (str_contains($r['price'] ?? '', 'JPY')) { $hasJPY = true; break; }
+}
+if ($hasJPY) {
+    $jpyRate = null;
+    $rateFile = __DIR__ . '/cache/jpy_eur_rate.json';
+    if (file_exists($rateFile) && (time() - filemtime($rateFile)) < 86400) {
+        $rateData = json_decode(file_get_contents($rateFile), true);
+        $jpyRate = $rateData['rate'] ?? null;
+    }
+    if (!$jpyRate) {
+        $rateBody = fetch("https://open.er-api.com/v6/latest/JPY", 8);
+        if ($rateBody) {
+            $rateJson = json_decode($rateBody, true);
+            $jpyRate = $rateJson['rates']['EUR'] ?? null;
+            if ($jpyRate) @file_put_contents($rateFile, json_encode(['rate' => $jpyRate, 'updated' => date('c')]));
+        }
+    }
+    if ($jpyRate) {
+        foreach ($results as &$r) {
+            if (str_contains($r['price'] ?? '', 'JPY')) {
+                $jpyAmount = (int) preg_replace('/[^\d]/', '', $r['price']);
+                $eurAmount = round($jpyAmount * $jpyRate);
+                $r['price'] = number_format($eurAmount, 0, ',', '.') . ' EUR';
+                $r['price_original'] = number_format($jpyAmount, 0, ',', '.') . ' JPY';
+            }
+        }
+        unset($r);
+    }
+}
+
+// ── Conversió USD → EUR ────────────────────────────────────
+$hasUSD = false;
+foreach ($results as $r) {
+    if (preg_match('/^\$[\d,]+/', $r['price'] ?? '')) { $hasUSD = true; break; }
+}
+if ($hasUSD) {
+    $usdRate = null;
+    $usdRateFile = __DIR__ . '/cache/usd_eur_rate.json';
+    if (file_exists($usdRateFile) && (time() - filemtime($usdRateFile)) < 86400) {
+        $rateData = json_decode(file_get_contents($usdRateFile), true);
+        $usdRate = $rateData['rate'] ?? null;
+    }
+    if (!$usdRate) {
+        $rateBody = fetch("https://open.er-api.com/v6/latest/USD", 8);
+        if ($rateBody) {
+            $rateJson = json_decode($rateBody, true);
+            $usdRate = $rateJson['rates']['EUR'] ?? null;
+            if ($usdRate) @file_put_contents($usdRateFile, json_encode(['rate' => $usdRate, 'updated' => date('c')]));
+        }
+    }
+    if ($usdRate) {
+        foreach ($results as &$r) {
+            if (preg_match('/^\$([\d,]+(?:\.\d{2})?)/', $r['price'] ?? '', $m)) {
+                $usdAmount = (float) str_replace(',', '', $m[1]);
+                $eurAmount = round($usdAmount * $usdRate);
+                $r['price'] = number_format($eurAmount, 0, ',', '.') . ' EUR';
+                $r['price_original'] = '$' . $m[1];
+            }
+        }
+        unset($r);
+    }
+}
+
+// ── Conversió PLN → EUR ────────────────────────────────────
+$hasPLN = false;
+foreach ($results as $r) {
+    if (str_contains($r['price'] ?? '', 'PLN')) { $hasPLN = true; break; }
+}
+if ($hasPLN) {
+    $plnRate = null;
+    $plnRateFile = __DIR__ . '/cache/pln_eur_rate.json';
+    if (file_exists($plnRateFile) && (time() - filemtime($plnRateFile)) < 86400) {
+        $rateData = json_decode(file_get_contents($plnRateFile), true);
+        $plnRate = $rateData['rate'] ?? null;
+    }
+    if (!$plnRate) {
+        $rateBody = fetch("https://open.er-api.com/v6/latest/PLN", 8);
+        if ($rateBody) {
+            $rateJson = json_decode($rateBody, true);
+            $plnRate = $rateJson['rates']['EUR'] ?? null;
+            if ($plnRate) @file_put_contents($plnRateFile, json_encode(['rate' => $plnRate, 'updated' => date('c')]));
+        }
+    }
+    if ($plnRate) {
+        foreach ($results as &$r) {
+            if (str_contains($r['price'] ?? '', 'PLN')) {
+                $plnAmount = (int) preg_replace('/[^\d]/', '', $r['price']);
+                $eurAmount = round($plnAmount * $plnRate);
+                $r['price'] = number_format($eurAmount, 0, ',', '.') . ' EUR';
+                $r['price_original'] = number_format($plnAmount, 0, ' ', '') . ' PLN';
+            }
+        }
+        unset($r);
+    }
+}
+
 // ── Resposta ────────────────────────────────────────────────
+foreach ($scrapersRun as &$sr) { unset($sr['start']); unset($sr['count_before']); }
+unset($sr);
+
 $response = [
-    'model'   => $model,
-    'region'  => $region,
-    'count'   => count($results),
-    'results' => array_values($results),
-    'sources' => array_values(array_unique(array_column($results, 'store'))),
-    'cached'  => false,
+    'model'      => $model,
+    'region'     => $region,
+    'count'      => count($results),
+    'results'    => array_values($results),
+    'sources'    => array_values(array_unique(array_column($results, 'store'))),
+    'scrapers'   => $scrapersRun,
+    'debug'      => [
+        'raw_total'          => $rawCount,
+        'raw_by_store'       => $rawByStore,
+        'after_cond_filter'  => $afterCondFilter,
+        'after_model_filter' => $afterModelFilter,
+        'final_count'        => count($results),
+        'model_pattern'      => $modelPattern,
+    ],
+    'cached'     => false,
+    'scraped_at' => date('c'),
 ];
 
 $json = json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);

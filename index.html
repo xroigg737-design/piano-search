@@ -287,6 +287,50 @@
         }
         .open-all:hover { background: rgba(100,180,255,0.16); border-color: rgba(100,180,255,0.4); }
 
+        .freshness-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+            font-size: 0.82em;
+        }
+        .freshness-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        .fb-fresh {
+            background: rgba(100,200,100,0.1);
+            color: #88dd88;
+            border: 1px solid rgba(100,200,100,0.2);
+        }
+        .fb-cached {
+            background: rgba(255,170,0,0.08);
+            color: rgba(255,170,0,0.7);
+            border: 1px solid rgba(255,170,0,0.15);
+        }
+        .btn-refresh {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 14px;
+            border-radius: 6px;
+            border: 1px solid rgba(100,180,255,0.25);
+            background: rgba(100,180,255,0.08);
+            color: #8ac4ff;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-refresh:hover { background: rgba(100,180,255,0.18); border-color: rgba(100,180,255,0.4); }
+        .btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-refresh .spin { display: inline-block; animation: spin 0.6s linear infinite; }
+
         .cerca-loading {
             text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4);
         }
@@ -380,7 +424,14 @@
         .results-table .td-price {
             font-weight: 800; color: #66dd88; white-space: nowrap; font-size: 1em;
         }
-        .results-table .td-year { white-space: nowrap; color: rgba(255,255,255,0.5); }
+        .results-table .td-year { white-space: nowrap; }
+        .year-exact { color: #ffffff; }
+        .year-serial { color: #ffcc44; }
+        .year-estimated { color: #ff9933; }
+        .year-none { color: rgba(255,255,255,0.35); }
+        .year-legend { display:flex; gap:14px; font-size:0.75em; margin-bottom:8px; opacity:0.85; flex-wrap:wrap; }
+        .year-legend span { display:inline-flex; align-items:center; gap:4px; }
+        .year-legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
         .results-table .td-title {
             max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             color: #e8e8e8;
@@ -656,7 +707,7 @@
         <option value="catalunya">Catalunya</option>
         <option value="espanya">Espanya</option>
         <option value="europa">Europa</option>
-        <option value="japo">Japo</option>
+        <option value="japo">Japó</option>
     </select>
     <button class="btn-search" onclick="doSearch()">&#128269; Cercar</button>
 </div>
@@ -765,7 +816,7 @@
 
 <footer>
     Piano Search &middot; Apps XRoig &middot; 2026
-    <p class="footer-version">v4.6</p>
+    <p class="footer-version">v5.0</p>
 </footer>
 
 <script>
@@ -919,60 +970,30 @@ const STORES = {
         { name:'Quatre40', city:'Barcelona', type:'specialist', url:'https://www.quatre40.com' },
         { name:'Music Sales', city:'Barcelona', type:'dealer', url:'https://www.musicsales.es' },
         { name:'PIANOMET', city:'Catalunya', type:'specialist', url:'https://www.pianomet.com' },
-        { name:'Pirineus Musical', city:'Reus', type:'specialist', url:'https://pirineusmusical.com' },
     ],
     espanya: [
         { name:'Pianissimo', city:'Madrid', type:'specialist', url:'https://www.pianisimo.es' },
         { name:'Casa Hazen', city:'Madrid', type:'specialist', url:'https://www.casahazen.com' },
         { name:'Pianos Low Cost', city:'Madrid', type:'dealer', url:'https://www.pianoslowcost.es' },
         { name:'Unipiano', city:'Valencia', type:'specialist', url:'https://www.unipiano.es' },
-        { name:'Jorquera Pianos', city:'Barcelona', type:'specialist', url:'https://jorquerapianos.com' },
-        { name:'Hinves Pianos', city:'Madrid', type:'specialist', url:'https://www.hinves.com' },
-        { name:'Musical Princesa', city:'Madrid', type:'specialist', url:'https://www.musicalprinces.es' },
-        { name:'Royal Pianos', city:'Malaga', type:'specialist', url:'https://royalpianos.com' },
-        { name:'Piano Importa', city:'Valencia', type:'specialist', url:'https://pianoimporta.com' },
-        { name:'Rincon Musical', city:'Madrid', type:'specialist', url:'https://www.rinconmusical.es' },
-        { name:'Musicasa', city:'Palma', type:'specialist', url:'https://www.musicasatiendas.com' },
-        { name:'Polimusica', city:'Madrid', type:'specialist', url:'https://polimusica.es' },
-        { name:'Musical Leones', city:'Granada', type:'specialist', url:'https://musicalleones.com' },
-        { name:'Piano Chollo', city:'Ontinyent, Valencia', type:'specialist', url:'https://www.pianochollo.com' },
-        { name:'Klavier', city:'Murcia', type:'specialist', url:'https://www.klavier.es' },
     ],
     europa: [
         { name:'Piano\'s Maene', city:'Belgica', type:'specialist', url:'https://www.maene.be' },
-        { name:'Bol Pianos', city:'Holanda/Belgica', type:'specialist', url:'https://bolpianos.com' },
-        { name:'Hanlet', city:'Brusselles, Belgica', type:'specialist', url:'https://hanlet.be' },
-        { name:'Quatre Mains', city:'Ghent, Belgica', type:'specialist', url:'https://www.quatremainspianos.be' },
-        { name:'Piano Fischer', city:'Alemanya', type:'specialist', url:'https://www.piano-fischer.de' },
         { name:'Thomann', city:'Alemanya', type:'dealer', url:'https://www.thomann.de' },
         { name:'Klavier Kreisel', city:'Alemanya', type:'specialist', url:'https://www.klavier-kreisel.de' },
-        { name:'Klavierhalle', city:'Altenberge, Alemanya', type:'specialist', url:'https://www.klavierhalle.de' },
-        { name:'Markson Pianos', city:'Londres, UK', type:'specialist', url:'https://marksonpianos.com' },
-        { name:'Sherwood Phoenix', city:'UK', type:'specialist', url:'https://sherwoodphoenix.co.uk' },
-        { name:'Piano Centre', city:'Londres, UK', type:'specialist', url:'https://www.pianocentre.co.uk' },
-        { name:'Besbrode Pianos', city:'Leeds, UK', type:'specialist', url:'https://www.besbrodepianos.co.uk' },
-        { name:'PIANOZ', city:'Maidenhead, UK', type:'specialist', url:'https://pianoz.com' },
-        { name:'Nebout & Hamm', city:'Paris, Franca', type:'specialist', url:'https://nebout-hamm.com' },
-        { name:'EML Pianos', city:'Lyon, Franca', type:'specialist', url:'https://www.pianos-lyon.com' },
-        { name:'Pianos Schaeffer', city:'Nancy, Franca', type:'specialist', url:'https://pianos-schaeffer.com' },
-        { name:'Pianoshop.fr', city:'Franca', type:'specialist', url:'https://www.pianoshop.fr' },
-        { name:'Anamorphose', city:'Nantes, Franca', type:'specialist', url:'https://www.anamorphose.fr' },
-        { name:'Marangi', city:'Italia', type:'specialist', url:'https://www.marangi.it' },
-        { name:'Scorticati', city:'Mila, Italia', type:'specialist', url:'https://www.scorticatipianoforti.it' },
-        { name:'Bontempi', city:'Roma, Italia', type:'specialist', url:'https://www.pianofortibontempiroma.com' },
-        { name:'Instrumentum', city:'Suissa', type:'specialist', url:'https://www.instrumentum.ch' },
-        { name:'Klavierhaus Langer', city:'Austria', type:'specialist', url:'https://klavierhaus-langer.at' },
-        { name:'Piano.art', city:'Innsbruck, Austria', type:'specialist', url:'https://www.pianoart.at' },
-        { name:'KlavierLoft', city:'Viena, Austria', type:'specialist', url:'https://www.klavierloft.at' },
-        { name:'Klaviano', city:'Europa', type:'marketplace', url:'https://www.klaviano.com' },
-        { name:'2dehands.be', city:'Belgica', type:'marketplace', url:'https://www.2dehands.be' },
+        { name:'OLX.pl', city:'Polònia', type:'marketplace', url:'https://www.olx.pl', tpl:'https://www.olx.pl/oferty/q-{q}-pianino/' },
+        { name:'Allegro.pl', city:'Polònia', type:'marketplace', url:'https://allegro.pl', tpl:'https://allegro.pl/listing?string={q}+pianino' },
+        { name:'2ememain.be', city:'Bèlgica FR', type:'marketplace', url:'https://www.2ememain.be', tpl:'https://www.2ememain.be/q/{q}+piano/' },
+        { name:'Leboncoin', city:'França', type:'marketplace', url:'https://www.leboncoin.fr', tpl:'https://www.leboncoin.fr/recherche?text={q}&category=26' },
     ],
     japo: [
-        { name:'Grand Gallery', city:'Aichi, Japo', type:'specialist', url:'https://export.grandg.com' },
-        { name:'Japan Piano Service', city:'Japo', type:'specialist', url:'https://www.japanpianoservice.com' },
+        { name:'Miki Piano', city:'Osaka', type:'specialist', url:'https://piano.miki.co.jp/lineup/brand/yamaha/' },
+        { name:'Shimamura', city:'Japó', type:'dealer', url:'https://store.shimamura.co.jp' },
+        { name:'Japan Used Piano', city:'Japó', type:'specialist', url:'https://www.japanusedpiano.com' },
         { name:'Piano Plaza', city:'Tokyo', type:'specialist', url:'https://www.pianoplaza.com' },
-        { name:'Shimamura Music', city:'Japo', type:'dealer', url:'https://www.shimamura.co.jp' },
-        { name:'Yahoo Auctions Japan', city:'Japo', type:'auction', url:'https://auctions.yahoo.co.jp' },
+        { name:'Yahoo Auctions Japan', city:'Japó', type:'auction', url:'https://auctions.yahoo.co.jp', tpl:'https://auctions.yahoo.co.jp/search/search?p={q}+ピアノ&auccat=22540' },
+        { name:'Mercari Japan', city:'Japó', type:'marketplace', url:'https://jp.mercari.com', tpl:'https://jp.mercari.com/search?keyword={q}+ピアノ' },
+        { name:'PianoMart', city:'Global', type:'marketplace', url:'https://www.pianomart.com', tpl:'https://www.pianomart.com/buy-a-piano/piano-ads?AdSearchForm%5Bsearch%5D={q}' },
     ],
     marketplaces: [
         { name:'Wallapop', city:'Espanya', type:'marketplace', url:'https://es.wallapop.com', tpl:'https://es.wallapop.com/app/search?keywords={q}&category_ids=12467' },
@@ -980,6 +1001,7 @@ const STORES = {
         { name:'eBay Espanya', city:'Europa', type:'marketplace', url:'https://www.ebay.es', tpl:'https://www.ebay.es/sch/i.html?_nkw={q}&_sacat=180015' },
         { name:'Leboncoin', city:'Franca', type:'marketplace', url:'https://www.leboncoin.fr', tpl:'https://www.leboncoin.fr/recherche?text={q}&category=26' },
         { name:'Kleinanzeigen', city:'Alemanya', type:'marketplace', url:'https://www.kleinanzeigen.de', tpl:'https://www.kleinanzeigen.de/s-musikinstrumente/{q}/k0c74' },
+        { name:'PianoMart', city:'Global', type:'marketplace', url:'https://www.pianomart.com', tpl:'https://www.pianomart.com/buy-a-piano/piano-ads?AdSearchForm%5Bsearch%5D={q}' },
     ]
 };
 
@@ -1084,43 +1106,60 @@ function getApiBase() {
     return isLocal ? 'https://i-xr.duckdns.org/piano-search/api/index.php' : 'api/index.php';
 }
 
-async function renderCerca(model, region) {
+async function renderCerca(model, region, forceFresh = false) {
     const sec = document.getElementById('sec2');
     const body = document.getElementById('cercaBody');
     sec.style.display = '';
 
-    const regionLabel = {catalunya:'Catalunya',espanya:'Espanya',europa:'Europa',japo:'Japo'}[region] || region;
+    const regionLabel = {catalunya:'Catalunya',espanya:'Espanya',europa:'Europa',japo:'Japó'}[region] || region;
 
-    // Show loading
     body.innerHTML = `
-        <div class="search-region-info">Cercant <strong>"${model}"</strong> a <strong>${regionLabel}</strong>...</div>
+        <div class="search-region-info">Cercant <strong>"${model}"</strong> a <strong>${regionLabel}</strong>${forceFresh ? ' (scraping complet...)' : '...'}</div>
         <div class="cerca-loading">
             <div class="cerca-spinner"></div>
-            <div>Cercant pianos de 2a ma a botigues especialitzades i marketplaces...</div>
-            ${(region === 'europa') ? '<div style="margin-top:8px;font-size:0.85em;color:rgba(255,255,255,0.3)">Europa rasca 50+ botigues, pot trigar fins a 1 minut la primera vegada (despres queda cachejat)</div>' : ''}
+            <div>${forceFresh ? 'Fent scraping complet de totes les fonts... pot trigar uns segons.' : 'Cercant pianos de 2a ma a botigues especialitzades i marketplaces...'}</div>
         </div>`;
 
-    // Fetch real results from API
     let apiResults = [];
     let sources = [];
+    let isCached = false;
+    let scrapedAt = '';
+    let scrapers = {};
+    let debugInfo = null;
     try {
-        const url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}&_t=${Date.now()}`;
+        let url = `${getApiBase()}?model=${encodeURIComponent(model)}&region=${encodeURIComponent(region)}`;
+        if (forceFresh) url += '&fresh=1';
         const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
-        const res = await fetch(url, { cache: 'no-store', credentials: isLocal ? 'omit' : 'same-origin' });
+        const res = await fetch(url, isLocal ? {} : { credentials: 'same-origin' });
         const data = await res.json();
         apiResults = data.results || [];
         sources = data.sources || [];
+        isCached = !!data.cached;
+        scrapedAt = data.cached_at || data.scraped_at || '';
+        scrapers = data.scrapers || {};
+        debugInfo = data.debug || null;
+        if (debugInfo) console.log('Piano Search debug:', debugInfo);
     } catch (e) {
         console.error('API error:', e);
     }
 
-    // Build table rows
+    const parsePrice = s => {
+        if (!s || s === '-') return Infinity;
+        const m = s.replace(/[^\d.,]/g, ' ').trim().match(/([\d.]+,\d{2}|[\d.]+)/);
+        if (!m) return Infinity;
+        return parseFloat(m[1].replace(/\./g, '').replace(',', '.')) || Infinity;
+    };
+    apiResults.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
+
     let realRows = '';
     if (apiResults.length > 0) {
         apiResults.forEach(r => {
             const thumb = r.image ? `<img class="td-thumb" src="${r.image}" alt="" onerror="this.style.display='none'">` : '';
-            const yearCell = r.year || '-';
-            const priceCell = r.price || '-';
+            const yConf = r.year_confidence || '';
+            const yClass = r.year ? (yConf === 'exact' ? 'year-exact' : yConf === 'serial' ? 'year-serial' : yConf === 'estimated' ? 'year-estimated' : 'year-exact') : 'year-none';
+            const yearCell = r.year ? `<span class="${yClass}">${r.year}</span>` : '<span class="year-none">-</span>';
+            const priceOriginal = r.price_original || '';
+            const priceCell = priceOriginal ? `<span title="${priceOriginal}">${r.price || '-'}</span>` : (r.price || '-');
             const titleShort = r.title.length > 65 ? r.title.substring(0, 62) + '...' : r.title;
             const condBadge = r.condition === '2a_ma' ? '<span class="cond-badge cond-2a">2a ma</span>'
                             : r.condition === 'nou' ? '<span class="cond-badge cond-nou">Nou</span>'
@@ -1139,8 +1178,48 @@ async function renderCerca(model, region) {
 
     const srcBadges = sources.map(s => `<span class="src-badge">${s}</span>`).join('');
 
+    let freshnessBadge = '';
+    if (scrapedAt) {
+        const ago = timeAgo(scrapedAt);
+        if (isCached) {
+            freshnessBadge = `<span class="freshness-badge fb-cached">&#9201; Resultats de fa ${ago}</span>`;
+        } else {
+            freshnessBadge = `<span class="freshness-badge fb-fresh">&#10003; Scraping fresc</span>`;
+        }
+    }
+    const refreshBtn = `<button class="btn-refresh" onclick="doFreshSearch()" id="btnRefresh">&#8635; Actualitzar resultats</button>`;
+
+    let debugHtml = '';
+    if (debugInfo && debugInfo.raw_total > 0) {
+        const byStore = Object.entries(debugInfo.raw_by_store || {}).map(([s,c]) => `${s}: ${c}`).join(', ');
+        debugHtml = `<div style="font-size:0.72em;color:rgba(255,255,255,0.25);margin-bottom:8px;padding:6px 10px;background:rgba(0,0,0,0.15);border-radius:6px">
+            Diagn&ograve;stic: ${debugInfo.raw_total} productes bruts trobats (${byStore}) &rarr; ${debugInfo.after_cond_filter} 2a ma &rarr; ${debugInfo.after_model_filter} coincideixen amb model &rarr; ${debugInfo.final_count} finals
+        </div>`;
+    }
+
+    let scrapersHtml = '';
+    if (Object.keys(scrapers).length > 0) {
+        const dots = Object.entries(scrapers).map(([name, info]) => {
+            const color = info.status === 'ok' ? '#66dd88' : info.status === 'blocked' ? '#ffaa00' : info.status === 'error' ? '#ff6666' : '#ffaa00';
+            const icon = info.status === 'ok' ? '&#10003;' : info.status === 'blocked' ? '&#128274;' : info.status === 'error' ? '&#10007;' : '&#8230;';
+            const foundInfo = info.found !== undefined ? ` [${info.found}]` : '';
+            const time = info.time ? ` (${info.time}s)` : '';
+            const note = info.note ? ` - ${info.note}` : '';
+            return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:0.72em;background:rgba(255,255,255,0.03);color:${color}" title="${name}: ${info.status}${foundInfo}${time}${note}">${icon} ${name}</span>`;
+        }).join(' ');
+        scrapersHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">${dots}</div>`;
+    }
+
     body.innerHTML = `
         <div class="search-region-info">Resultats per <strong>"${model}"</strong> a <strong>${regionLabel}</strong></div>
+
+        <div class="freshness-bar">
+            ${freshnessBadge}
+            ${refreshBtn}
+        </div>
+
+        ${scrapersHtml}
+        ${debugHtml}
 
         <div class="cerca-count">
             <strong>${apiResults.length}</strong> ofertes de 2a ma trobades
@@ -1148,6 +1227,11 @@ async function renderCerca(model, region) {
         </div>
 
         ${apiResults.length > 0 ? `
+        <div class="year-legend">
+            <span><span class="dot" style="background:#fff"></span> Any confirmat</span>
+            <span><span class="dot" style="background:#ffcc44"></span> Via num. serie</span>
+            <span><span class="dot" style="background:#ff9933"></span> Estimat</span>
+        </div>
         <div class="results-wrap">
             <table class="results-table">
                 <thead><tr>
@@ -1164,7 +1248,31 @@ async function renderCerca(model, region) {
         </div>` : `
         <div class="cerca-none">
             Cap resultat trobat per "${model}" a ${regionLabel}. Prova amb un altre model o una regio mes amplia.
+            ${region === 'japo' ? `<div style="margin-top:12px;font-size:0.9em;color:rgba(255,255,255,0.5)">
+                Les webs japoneses (Yahoo Auctions, Mercari) bloquegen accessos des de fora del Japo. Pots cercar manualment:
+                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">
+                    <a href="https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(model)}+%E3%83%94%E3%82%A2%E3%83%8E&auccat=22540" target="_blank" style="color:#8ac4ff;text-decoration:underline">Yahoo Auctions JP</a>
+                    <a href="https://jp.mercari.com/search?keyword=${encodeURIComponent(model)}+%E3%83%94%E3%82%A2%E3%83%8E" target="_blank" style="color:#8ac4ff;text-decoration:underline">Mercari Japan</a>
+                    <a href="https://www.pianoplaza.com/en/" target="_blank" style="color:#8ac4ff;text-decoration:underline">Piano Plaza Tokyo</a>
+                </div>
+            </div>` : ''}
         </div>`}`;
+}
+
+function timeAgo(isoStr) {
+    const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+    if (diff < 60) return 'uns segons';
+    if (diff < 3600) return Math.floor(diff / 60) + ' min';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ' + Math.floor((diff % 3600) / 60) + 'min';
+    return Math.floor(diff / 86400) + ' dies';
+}
+
+async function doFreshSearch() {
+    const btn = document.getElementById('btnRefresh');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin">&#8635;</span> Actualitzant...'; }
+    const q = document.getElementById('searchInput').value.trim();
+    const region = document.getElementById('searchRegion').value;
+    if (q) await renderCerca(q, region, true);
 }
 
 // ==================== S3: BENCHMARK ====================
@@ -1350,18 +1458,6 @@ function sortCat(key) {
     renderCatalog();
 }
 
-// Nomenclatura dels pianos de cua segons la llargada (cm)
-function grandSize(d) {
-    if (d <= 130) return 'Mignon';
-    if (d <= 189) return 'Quart de cua';
-    if (d <= 225) return 'Mitja cua';
-    if (d <= 255) return 'Tres quarts de cua';
-    return 'Cua de concert';
-}
-function typeLabel(p) {
-    return p.type === 'Gran Cola' ? grandSize(p.d) : p.type;
-}
-
 function renderCatalog() {
     const filter = (document.getElementById('catFilter').value || '').toLowerCase();
     const typeF = document.getElementById('catType').value;
@@ -1378,7 +1474,7 @@ function renderCatalog() {
         let va, vb;
         switch(catSort.key) {
             case 'model': va=a.model; vb=b.model; break;
-            case 'type': va=a.type+String(a.d).padStart(4,'0'); vb=b.type+String(b.d).padStart(4,'0'); break;
+            case 'type': va=a.type; vb=b.type; break;
             case 'years': va=a.y1; vb=b.y1; break;
             case 'dims': va=a.type==='Gran Cola'?a.d:a.h; vb=b.type==='Gran Cola'?b.d:b.h; break;
             case 'weight': va=a.wt; vb=b.wt; break;
@@ -1397,7 +1493,7 @@ function renderCatalog() {
             : p.h + ' x ' + p.w + ' x ' + p.d + ' cm';
         return `<tr>
             <td class="tm">Yamaha ${p.model}</td>
-            <td style="white-space:nowrap">${typeLabel(p)}</td>
+            <td>${p.type}</td>
             <td>${p.y1}-${p.y2||'avui'}</td>
             <td style="white-space:nowrap;font-size:0.9em;color:rgba(255,255,255,0.5)">${dim}</td>
             <td>${p.wt} kg</td>
